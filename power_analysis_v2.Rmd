@@ -253,6 +253,23 @@ kable(power_wide, digits = 3, caption = "Estimated Power by Sample Size and Scen
 ```
 
 # 4. Visualization
+
+## Power Curve for each of the 3 scenarios
+
+```{r}
+ggplot(data = power_results) +
+  aes(x=N, y=Power, color=Scenario) +
+  geom_line(size=1) +
+  geom_point() +
+  geom_hline(yintercept=0.8, linetype='dashed', color='red') +
+  labs(
+    title = "Power Analysis Under 3 Scenarios",
+    x = "Sample Size",
+    y = "Estimated Power"
+  ) +
+  theme_minimal()
+```
+
 # 5. Conclusion
 
 
