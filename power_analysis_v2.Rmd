@@ -1,0 +1,239 @@
+---
+title: "Power Analysis"
+author: "Castillo, Dobbs, Patel, Schrupp"
+date: "2026-02-15"
+output: pdf_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r package loads, warning=FALSE, message=FALSE, include=FALSE}
+library(data.table)
+library(sandwich)
+library(lmtest)
+
+library(ggplot2)
+library(knitr)
+```
+
+\tableofcontents
+\newpage
+
+# 1. Introduction and Effect Size Justification
+
+## Research Hypothesis
+
+We hypothesize that listening to **High-Tempo** (>=125 BPM) music will 
+significantly extend the **time-to-volitional-exhaustion (TTE)** during an 
+isometric plank hold compared to listening to **Low-Tempo** (<=80 BPM) music. 
+This hypothesis draws on the theory of **psychological dissociation**, where 
+fast-paced auditory stimuli compete with interoceptive fatigue signals 
+(e.g., muscle burning), thereby lowering the **Rate of Perceived Exertion (RPE)** 
+and delaying voluntary cessation of the exercise.
+
+## Data Generating Functions 
+
+To ensure our power analysis simulation is grounded in reality, we derived our 
+baseline parameters from recent literature specifically examining music and 
+isometric strength tasks.
+
+- **Baseline Performance ($\mu$):** We assume a baseline plank hold time of 
+**111 seconds**. This is based on the control group performance reported by 
+*Feiss et al. (2021)* during a no-music plank condition.
+
+- **Population Variance ($\sigma$):** A critical challenge in measuring 
+isometric endurance is the substantial natural variability in human strength. 
+*Feiss et al. (2021)* reported a standard deviation of **43 seconds**, while 
+*Poon et al. (2024)* reported SDs ranging from **40.9 to 58.3 seconds**. For 
+our simulation, we will use **SD = 43 seconds**. This high variance 
+(**CV around 39%**) suggests that individual strength differences may 
+easily drown out the music effect in a **between-subjects** design.
+
+## Simulation Scenarios
+
+We will estimate statistical power under three distinct scenarios representing 
+the range of effects reported in the literature.
+
+### Scenario A: Conservative Estimate (Between-Subjects)
+
+- **Basis:** *Feiss et al. (2021)* and *Centala et al. (2020)*.  
+- **Justification:** *Feiss et al.* found no significant difference in plank TTE 
+between fast-tempo and no-music conditions. Similarly, *Centala et al.* found
+that while fast music improved the neuromuscular fatigue threshold, it did not 
+significantly alter RPE at the point of exhaustion. This scenario assumes the 
+null hypothesis is nearly true or the effect is negligible.  
+- **Effect Size:** **+5 seconds** (approx. Cohen’s *d* = 0.12).
+
+### Scenario B:  B: Optimistic Estimate (Between-Subjects)  
+
+- **Basis:** *Terry et al. (2020)* meta-analysis.  
+- **Justification:** Across **139 studies** and approximately 
+**3,600 participants**, the generalized effect of music on physical performance 
+was **Hedges’ g = 0.31**. This represents the average benefit one might expect 
+from music across broad exercise contexts.  
+- **Effect Size:** **+13 seconds** (0.31 × 43s SD).
+
+### Scenario C: Crossover Design (Within-Subjects)
+
+- **Basis:** *Poon et al. (2024)*.  
+- **Justification:** In a study design very similar to ours (isometric plank), 
+*Poon et al.* found that listening to music extended plank time from **144.8 s** 
+to **171.0 s**, a difference of approximately **26 seconds**. They reported a 
+large effect size (*d* = 0.76).  
+- **Design Note:** Crucially, *Poon et al.* utilized a **within-subjects 
+(crossover)** design. To test whether we can replicate this power, Scenario C 
+will simulate the same large effect (**+26 seconds**) but will use a 
+**within-subjects DGP** in the code to demonstrate how controlling for 
+individual baseline strength reduces error variance and increases power.
+
+
+# 2. The Data Generating Functions  
+We define a set of functions run_sim(scenario) to simulate one iteration of the 
+experiment under that scenario. This function generates potential outcomes, 
+assigns treatment, and calculates the p-value.  
+
+## Scenario A: Conservative Estimate (Between-Subjects)
+- Design: Randomized Controlled Trial (Between-Subjects).
+- Effect Size: 5 seconds (Small effect, based on null findings in Feiss et al.).
+- Logic: Uses Linear Regression with Robust Standard Errors (HC3) to handle high 
+variance.
+
+```{r}
+run_sim_scenario_A <- function(N) {
+  # 1. Define Parameters
+  baseline_mean <- 111   # Seconds (Feiss et al. Control Group)
+  population_sd <- 43    # Seconds (Feiss et al. SD)
+  effect_size   <- 5     # Conservative estimate (Small effect)
+  
+  # 2. Generate Data (Between-Subjects)
+  d <- data.table(id = 1:N)
+  
+  # Generate potential outcomes for Control (Y0) and Treatment (Y1)
+  d[, Y0 := rnorm(N, mean = baseline_mean, sd = population_sd)]
+  d[, Y1 := Y0 + effect_size]
+  
+  # Random Assignment (50/50 split)
+  d[, T_assigned := 0]
+  treated_indices <- sample(1:N, size = N/2, replace = FALSE)
+  d[treated_indices, T_assigned := 1]
+  
+  # Reveal Observed Outcomes
+  d[, Y_obs := T_assigned * Y1 + (1 - T_assigned) * Y0]
+  
+  # 3. Conduct Analysis
+  mod <- lm(Y_obs ~ T_assigned, data = d)
+  
+  # Calculate Robust Confidence Intervals
+  plank_robust_ci <- coefci(mod, vcov = vcovHC(mod, type = "HC3"), level = 0.95)
+  
+  # Check significance: Does the CI for T_assigned exclude 0?
+  lower_bound <- plank_robust_ci["T_assigned", 1]
+  upper_bound <- plank_robust_ci["T_assigned", 2]
+  
+  # Return 1 if significant (0 is outside the interval), else 0
+  is_significant <- as.numeric(!(lower_bound <= 0 && upper_bound >= 0))
+  return(is_significant)
+}
+```
+
+## Scenario B: Optimistic Estimate (Between-Subjects)  
+- Design: Randomized Controlled Trial (Between-Subjects).  
+- Effect Size: 26 seconds (Large effect, based on Poon et al.).  
+- Logic: Uses Linear Regression with Robust Standard Errors (HC3).  
+
+```{r}
+run_sim_scenario_B <- function(N) {
+  # 1. Define Parameters
+  baseline_mean <- 111   # Seconds
+  population_sd <- 43    # Seconds
+  effect_size   <- 26    # Optimistic estimate (Based on Poon et al.)
+  
+  # 2. Generate Data (Between-Subjects)
+  d <- data.table(id = 1:N)
+  
+  # Generate potential outcomes
+  d[, Y0 := rnorm(N, mean = baseline_mean, sd = population_sd)]
+  d[, Y1 := Y0 + effect_size]
+  
+  # Random Assignment (50/50 split)
+  d[, T_assigned := 0]
+  treated_indices <- sample(1:N, size = N/2, replace = FALSE)
+  d[treated_indices, T_assigned := 1]
+  
+  # Reveal Observed Outcomes
+  d[, Y_obs := T_assigned * Y1 + (1 - T_assigned) * Y0]
+  
+  # 3. Conduct Analysis (Linear Model with HC3 Robust SE)
+  mod <- lm(Y_obs ~ T_assigned, data = d)
+  
+  # Calculate Robust Confidence Intervals
+  plank_robust_ci <- coefci(mod, vcov = vcovHC(mod, type = "HC3"), level = 0.95)
+  
+  # Check significance
+  lower_bound <- plank_robust_ci["T_assigned", 1]
+  upper_bound <- plank_robust_ci["T_assigned", 2]
+  
+  is_significant <- as.numeric(!(lower_bound <= 0 && upper_bound >= 0))
+  return(is_significant)
+}
+```
+
+## Scenario C: Crossover Design (Within-Subjects)
+- Design: Crossover / Within-Subjects (Every participant does both).
+- Effect Size: 26 seconds (Same large effect as Scenario B).
+- Logic: Uses a Paired T-Test. This design controls for the large individual 
+variability in plank time (the 43s SD), drastically increasing power.
+
+```{r}
+run_sim_scenario_C <- function(N) {
+  # 1. Define Parameters
+  baseline_mean <- 111
+  population_sd <- 43
+  effect_size   <- 26    # Optimistic estimate
+  
+  # 2. Generate Data (Within-Subjects / Crossover)
+  # Generate N subjects, each with a specific "baseline strength"
+  subject_effect <- rnorm(N, mean = baseline_mean, sd = population_sd)
+  
+  # Within-person variability (inconsistency between days)
+  # Usually smaller than population_sd. We estimate it at ~20s.
+  within_sd <- 20 
+  
+  # Condition 0: Low Tempo (Subject Baseline + Random Noise)
+  Y0 <- subject_effect + rnorm(N, mean = 0, sd = within_sd)
+  
+  # Condition 1: High Tempo (Subject Baseline + Effect + Random Noise)
+  Y1 <- subject_effect + effect_size + rnorm(N, mean = 0, sd = within_sd)
+  
+  # 3. Conduct Analysis (Paired T-Test)
+  # We test if the difference between Y1 and Y0 is significantly different from 0
+  test_result <- t.test(Y1, Y0, paired = TRUE)
+  
+  # Return 1 if p < 0.05, else 0
+  return(as.numeric(test_result$p.value < 0.05))
+}
+```
+
+# 3. Power Estimation
+# 4. Visualization
+# 5. Conclusion
+
+
+# 6. References
+
+**Ballmann, C. G.** (2021). The influence of music preference on exercise responses and performance: A review. *Journal of Functional Morphology and Kinesiology*, *6*(2), 33. https://doi.org/10.3390/jfmk6020033
+
+**Centala, J., Pogorel, C., Pummill, S. W., & Malek, M. H.** (2020). Listening to fast-tempo music delays the onset of neuromuscular fatigue. *Journal of Strength and Conditioning Research*, *34*(3), 617–622. https://doi.org/10.1519/JSC.0000000000003417
+
+**Coppock, A.** (n.d.). *10 things to know about statistical power*. EGAP. https://egap.org/resource/10-things-to-know-about-statistical-power/
+
+**Feiss, R., Kostrna, J., Scruggs, J. W., Pangelinan, M., & Tenenbaum, G.** (2021). Effects of music tempo on perceived exertion, attention, affect, heart rate, and performance during isometric strength exercise. *Journal of Sports Sciences*, *39*(2), 161–169. https://doi.org/10.1080/02640414.2020.1809974
+
+**Li, C., Jin, C., Zhang, Z., & Shi, P.** (2022). Music recharges people: Synchronized music during aerobic exercise leads to better self-regulation performance. *PLOS ONE*, *17*(12), e0278062. https://doi.org/10.1371/journal.pone.0278062
+
+**Poon, E. T.-C., Kwan, W. L., Chow, C. C., & Chan, D. K. C.** (2024). Music timing differentiates fatigue perception and performance during isometric strength exercises: A crossover randomised trial. *Journal of Sports Science and Medicine*, *23*, 258–264. https://doi.org/10.52082/jssm.2024.258
+
+**Terry, P. C., Karageorghis, C. I., Curran, M. L., Martin, O. V., & Parsons-Smith, R. L.** (202
+
