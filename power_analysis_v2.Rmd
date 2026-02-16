@@ -217,6 +217,41 @@ run_sim_scenario_C <- function(N) {
 ```
 
 # 3. Power Estimation
+
+We now estimate statistical power by running each scenario's simulation **1,000 times**
+at a range of sample sizes. Power is calculated as the proportion of simulations that
+correctly reject the null hypothesis at the $\alpha = 0.05$ level.
+
+```{r}
+
+sample_sizes <- seq(20, 300, by = 20)
+n_simulations <- 1000
+
+power_A <- sapply(sample_sizes, function(n) {
+  mean(replicate(n_simulations, run_sim_scenario_A(n)))
+})
+
+power_B <- sapply(sample_sizes, function(n) {
+  mean(replicate(n_simulations, run_sim_scenario_B(n)))
+})
+
+power_C <- sapply(sample_sizes, function(n) {
+  mean(replicate(n_simulations, run_sim_scenario_C(n)))
+})
+
+power_results <- data.table(
+ N = rep(sample_sizes, 3),
+ Power = c(power_A, power_B, power_C),
+ Scenario = rep(c("A: Conservative (Between, +5s)",
+                  "B: Optimistic (Between, +26s)",
+                  "C: Crossover (Within, +26s)"), each = length(sample_sizes))
+ )
+ 
+power_wide <- dcast(power_results, N ~ Scenario, value.var = "Power")
+
+kable(power_wide, digits = 3, caption = "Estimated Power by Sample Size and Scenario")
+```
+
 # 4. Visualization
 # 5. Conclusion
 
