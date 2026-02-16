@@ -271,7 +271,7 @@ ggplot(data = power_results) +
   theme_minimal()
 ```
 
-*Interpretation*: Under the conservative scenario (effect size = +5s), the design remains severely under powered, failing to exceed 0.20 even as the sample size approaches $N=300$.  The Optimistic Scenario (Between-Subjects) crosses the standard 0.80 power threshold at a sample size of approximately $N \approx 90$. The optimistic Crossover/Within-Subjects scenario is the most statistically efficient, achieving near-perfect power (>0.99) with as few as 20 subjects.
+*Interpretation*: Under the conservative scenario (effect size = +5s), the design remains severely under powered, failing to exceed 0.20 even as the sample size approaches $N=300$.  The Optimistic Scenario (Between-Subjects) crosses the standard 0.80 power threshold at a sample size of approximately $N \approx 90$. The optimistic Crossover/Within-Subjects scenario is the most statistically efficient, achieving near-perfect power (>0.95) with as few as 20 subjects.
 
 # 5. Conclusion
 
