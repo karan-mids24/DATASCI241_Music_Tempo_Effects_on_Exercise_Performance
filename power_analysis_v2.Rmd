@@ -223,7 +223,6 @@ at a range of sample sizes. Power is calculated as the proportion of simulations
 correctly reject the null hypothesis at the $\alpha = 0.05$ level.
 
 ```{r}
-
 sample_sizes <- seq(20, 300, by = 20)
 n_simulations <- 1000
 
@@ -238,7 +237,10 @@ power_B <- sapply(sample_sizes, function(n) {
 power_C <- sapply(sample_sizes, function(n) {
   mean(replicate(n_simulations, run_sim_scenario_C(n)))
 })
+```
 
+
+```{r}
 power_results <- data.table(
  N = rep(sample_sizes, 3),
  Power = c(power_A, power_B, power_C),
@@ -248,7 +250,6 @@ power_results <- data.table(
  )
  
 power_wide <- dcast(power_results, N ~ Scenario, value.var = "Power")
-
 kable(power_wide, digits = 3, caption = "Estimated Power by Sample Size and Scenario")
 ```
 
@@ -270,8 +271,11 @@ ggplot(data = power_results) +
   theme_minimal()
 ```
 
+*Interpretation*: Under the conservative scenario (effect size = +5s), the design remains severely under powered, failing to exceed 0.20 even as the sample size approaches $N=300$.  The Optimistic Scenario (Between-Subjects) crosses the standard 0.80 power threshold at a sample size of approximately $N \approx 90$. The optimistic Crossover/Within-Subjects scenario is the most statistically efficient, achieving near-perfect power (>0.99) with as few as 20 subjects.
+
 # 5. Conclusion
 
+In conclusion, the simulation demonstrates that the choice of experimental design is critical for successfully detecting an effect. The Conservative Scenario (A) proved unfeasible, failing to reach adequate power (<0.20) even at maximal sample sizes. While the Between-Subjects design (Scenario B) is a valid option, it requires a substantial sample size of $N \approx 90$ to reach the 80% power threshold. Consequently, Scenario C (Within-Subjects) emerges as the most promising design, achieving near-perfect power with as few as 20 subjects. Although within-subjects designs often carry the risk of carryover effects, we believe this threat is minimal for an isometric plank task performed only twice (low vs. high tempo). Therefore, given its superior feasibility and statistical efficiency, Scenario C is the group's preferred experimental design.
 
 # 6. References
 
