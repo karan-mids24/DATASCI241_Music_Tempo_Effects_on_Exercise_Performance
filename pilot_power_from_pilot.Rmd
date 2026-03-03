@@ -1,0 +1,165 @@
+---
+title: "Pilot-Based Power Analysis"
+author: "Pilot Study Team"
+date: "`r Sys.Date()`"
+output: pdf_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE, message = FALSE, warning = FALSE)
+```
+
+```{r libraries}
+library(data.table)
+library(sandwich)
+library(lmtest)
+library(ggplot2)
+library(knitr)
+```
+
+## 1. Read Pilot Data
+
+We start from the processed pilot dataset created by `process_pilot_csv.R`.
+
+```{r read-pilot}
+PILOT_FILE <- "pilot_data.csv"
+pilot <- fread(PILOT_FILE)
+
+# Sanitize Unicode for PDF/LaTeX (e.g. >= from survey text like ">= 3 times per week")
+sanitize_ascii <- function(x) {
+  if (!is.character(x)) return(x)
+  x <- gsub("\u2265", ">=", x, fixed = TRUE)   # >= (greater-or-equal)
+  x <- gsub("\u2264", "<=", x, fixed = TRUE)   # <= (less-or-equal)
+  x <- gsub("\u2013", "-", x, fixed = TRUE)    # en-dash
+  x <- gsub("\u2014", "-", x, fixed = TRUE)    # em-dash
+  x
+}
+for (j in seq_along(pilot)) if (is.character(pilot[[j]])) set(pilot, j = j, value = sanitize_ascii(pilot[[j]]))
+
+str(pilot)
+head(pilot)
+```
+
+## 2. Estimate Effect Size from Pilot
+
+We use only participants with both slow and high-tempo plank times.
+
+```{r estimate-effect}
+# Complete cases for both conditions (needed for within-subjects and for estimating SDs)
+pilot_cc <- pilot[!is.na(tte_slow) & !is.na(tte_high)]
+
+if (nrow(pilot_cc) < 4) {
+  stop("Need at least 4 complete cases in pilot_data.csv to estimate parameters.")
+}
+
+# Between-subjects: marginal means and SDs for slow vs high conditions
+mean_slow <- pilot_cc[, mean(tte_slow, na.rm = TRUE)]
+mean_high <- pilot_cc[, mean(tte_high, na.rm = TRUE)]
+sd_slow   <- pilot_cc[, sd(tte_slow, na.rm = TRUE)]
+sd_high   <- pilot_cc[, sd(tte_high, na.rm = TRUE)]
+
+# If SD is 0 or NA, use pooled SD or a small default
+pooled_sd <- pilot_cc[, sqrt((var(tte_slow, na.rm = TRUE) + var(tte_high, na.rm = TRUE)) / 2)]
+if (is.na(sd_slow) || sd_slow <= 0) sd_slow <- max(pooled_sd, 1)
+if (is.na(sd_high) || sd_high <= 0) sd_high <- max(pooled_sd, 1)
+
+effect_pilot <- mean_high - mean_slow
+
+# Within-subjects: difference and SD of difference
+pilot_cc[, diff_tte := tte_high - tte_slow]
+mean_diff_pilot <- pilot_cc[, mean(diff_tte)]
+sd_diff_pilot   <- pilot_cc[, sd(diff_tte)]
+if (is.na(sd_diff_pilot) || sd_diff_pilot <= 0) sd_diff_pilot <- max(pooled_sd, 1)
+
+pilot_summary <- data.table(
+  metric = c("Slow mean", "High mean", "Effect (high - slow)", "SD slow", "SD high", "Mean diff", "SD diff"),
+  value  = c(mean_slow, mean_high, effect_pilot, sd_slow, sd_high, mean_diff_pilot, sd_diff_pilot)
+)
+
+kable(pilot_summary, digits = 2, caption = "Pilot-based estimates for plank time (seconds)")
+```
+
+## 3. Simulation Functions
+
+We now define functions to simulate between-subjects and within-subjects designs
+using the pilot-based parameters.
+
+```{r sim-functions}
+SAMPLE_SIZES <- seq(20, 300, by = 20)
+N_SIM <- 1000
+ALPHA <- 0.05
+
+# Between-subjects: one observation per person (slow vs high as two groups)
+run_sim_between <- function(N, mean_slow, mean_high, sd_slow, sd_high) {
+  n_per_group <- floor(N / 2)
+  if (n_per_group < 1) return(NA_real_)
+  
+  y_slow <- rnorm(n_per_group, mean = mean_slow, sd = sd_slow)
+  y_high <- rnorm(n_per_group, mean = mean_high, sd = sd_high)
+  
+  d <- data.table(
+    y = c(y_slow, y_high),
+    treat = rep(0:1, each = n_per_group)
+  )
+  
+  mod <- lm(y ~ treat, data = d)
+  ci <- coefci(mod, vcov = vcovHC(mod, type = "HC3"), level = 1 - ALPHA)
+  lb <- ci["treat", 1]
+  ub <- ci["treat", 2]
+  
+  as.numeric(!(lb <= 0 && ub >= 0))
+}
+
+# Within-subjects: paired slow vs high per person
+run_sim_within <- function(N, mean_diff, sd_diff) {
+  diff_sim <- rnorm(N, mean = mean_diff, sd = sd_diff)
+  test_result <- t.test(diff_sim, mu = 0)
+  as.numeric(test_result$p.value < ALPHA)
+}
+```
+
+## 4. Power Estimation from Pilot
+
+We estimate power across a range of sample sizes for both designs.
+
+```{r power-sim}
+set.seed(241)
+
+power_between <- sapply(SAMPLE_SIZES, function(n) {
+  mean(replicate(N_SIM, run_sim_between(n, mean_slow, mean_high, sd_slow, sd_high)))
+})
+
+power_within <- sapply(SAMPLE_SIZES, function(n) {
+  mean(replicate(N_SIM, run_sim_within(n, mean_diff_pilot, sd_diff_pilot)))
+})
+
+power_results <- data.table(
+  N = rep(SAMPLE_SIZES, 2),
+  Power = c(power_between, power_within),
+  Design = rep(c("Between-subjects", "Within-subjects"), each = length(SAMPLE_SIZES))
+)
+
+power_wide <- dcast(power_results, N ~ Design, value.var = "Power")
+kable(power_wide, digits = 3, caption = "Estimated power by sample size and design (pilot-based)")
+```
+
+## 5. Power Curves
+
+Finally, we visualize the power curves for between-subjects and within-subjects
+designs based on the pilot estimates.
+
+```{r power-plot, fig.height=4.5, fig.width=7}
+ggplot(power_results) +
+  aes(x = N, y = Power, color = Design) +
+  geom_line(size = 1) +
+  geom_point() +
+  geom_hline(yintercept = 0.8, linetype = "dashed", color = "red") +
+  scale_y_continuous(limits = c(0, 1)) +
+  labs(
+    title = "Pilot-Based Power Curves: Slow vs High-Tempo Music",
+    x = "Sample size (N)",
+    y = "Estimated power"
+  ) +
+  theme_minimal()
+```
+
