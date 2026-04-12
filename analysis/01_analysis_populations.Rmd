@@ -1,0 +1,396 @@
+---
+title: "Experiment analysis step 1: populations and canonical datasets"
+subtitle: "Participant flow, attrition/compliance, and analysis-ready exports"
+author: "W241 Plank Study"
+date: "`r Sys.Date()`"
+output:
+  html_document:
+    toc: true
+    toc_depth: 2
+    number_sections: true
+---
+
+```{r setup, include=FALSE}
+library(knitr)
+knitr::opts_chunk$set(
+  echo = TRUE,
+  message = TRUE,
+  warning = TRUE,
+  collapse = TRUE
+)
+
+.analysis_dir <- {
+  fn <- tryCatch(knitr::current_input(), error = function(e) "")
+  if (is.null(fn) || !nzchar(fn)) {
+    normalizePath(getwd(), winslash = "/")
+  } else {
+    dirname(normalizePath(fn, winslash = "/"))
+  }
+}
+source(file.path(.analysis_dir, "00_analysis_setup.R"))
+library(data.table)
+library(ggplot2)
+```
+
+## Purpose
+
+This document creates the first set of experiment-analysis objects:
+
+1. `analysis/derived/participant_flow.csv`
+2. `analysis/derived/paired_analysis.csv`
+3. `analysis/derived/long_repeated_measures.csv`
+
+It uses:
+
+- `w241_experiment_wide.csv` for observed sessions, condition-level outcomes, and survey/process variables.
+- `W241 Plank Study Data - participants.csv` for the full registered participant roster.
+
+## Load inputs
+
+```{r load}
+participants <- read_participants()
+wide <- read_experiment_wide()
+
+stopifnot(uniqueN(participants$participant_id) == nrow(participants))
+stopifnot(uniqueN(wide$participant_id) == nrow(wide))
+stopifnot(all(wide$participant_id %in% participants$participant_id))
+
+participants[, assigned_order := fcase(
+  group_label == "trancepop", "high_tempo_first",
+  group_label == "poptrance", "low_tempo_first",
+  default = NA_character_
+)]
+```
+
+## Reading the flow correctly
+
+This step intentionally starts from the **full initial distribution** and only then narrows to the analytic samples.
+
+- First, we show the full registered roster and how many participants reach each observation stage.
+- Next, we separate **attrition** (for example, not returning for session 2) from **compliance / protocol exclusions**.
+- Only after those counts are visible do we define the **primary analytic sample** and the **first-period benchmark sample**.
+
+This mirrors the report plan: the reader should see the whole study population first, then exactly why some participants are not used for a given estimand.
+
+## Build participant flow dataset
+
+The participant roster is the base denominator for flow accounting. We left-join the experiment wide file onto the full participant list so registered participants with zero observed sessions still appear in the flow dataset.
+
+```{r build-flow}
+flow <- merge(
+  participants,
+  wide,
+  by = "participant_id",
+  all.x = TRUE,
+  suffixes = c("_participant", "")
+)
+
+flow[, registered := 1L]
+flow[, randomized := as.integer(!is.na(assigned_order))]
+flow[, order_observed := as.integer(!is.na(crossover_order))]
+flow[, period1_observed := as.integer(!is.na(plank_s1))]
+flow[, period2_observed := as.integer(!is.na(plank_s2))]
+flow[, completed_both_observed := as.integer(!is.na(plank_s1) & !is.na(plank_s2))]
+flow[, attrited_before_session2 := as.integer(period1_observed == 1L & period2_observed == 0L)]
+
+flow[, missing_primary_condition := as.integer(is.na(plank_high_tempo) | is.na(plank_low_tempo))]
+flow[, impossible_time := as.integer(
+  (!is.na(plank_high_tempo) & plank_high_tempo > 600) |
+    (!is.na(plank_low_tempo) & plank_low_tempo > 600)
+)]
+flow[, washout_violation := as.integer(
+  completed_both_observed == 1L &
+    !is.na(elapsed_sessions_hours) &
+    elapsed_sessions_hours < 24
+)]
+
+flow[, in_primary_analysis := as.integer(
+  completed_both_observed == 1L &
+    missing_primary_condition == 0L &
+    impossible_time == 0L &
+    washout_violation == 0L
+)]
+
+flow[, in_first_period_benchmark := as.integer(
+  randomized == 1L &
+    period1_observed == 1L &
+    !is.na(plank_s1) &
+    plank_s1 <= 600
+)]
+
+flow[, primary_exclusion_reason := fcase(
+  in_primary_analysis == 1L, NA_character_,
+  missing_primary_condition == 1L, "missing one condition",
+  impossible_time == 1L, "impossible time > 600s",
+  washout_violation == 1L, "washout < 24h",
+  default = "other"
+)]
+
+flow[, benchmark_exclusion_reason := fcase(
+  in_first_period_benchmark == 1L, NA_character_,
+  randomized == 0L, "not randomized",
+  period1_observed == 0L, "missing session 1 outcome",
+  !is.na(plank_s1) & plank_s1 > 600, "impossible session 1 time > 600s",
+  default = "other"
+)]
+
+setorder(flow, participant_registered_at, participant_id)
+```
+
+## Participant flow summaries
+
+```{r table-flow}
+flow_table <- data.table(
+  population = c(
+    "Registered participants",
+    "Randomized order assigned",
+    "Session 1 observed",
+    "Session 2 observed",
+    "Completed both sessions",
+    "Primary analytic sample",
+    "First-period benchmark sample"
+  ),
+  n = c(
+    nrow(flow),
+    flow[, sum(randomized)],
+    flow[, sum(period1_observed)],
+    flow[, sum(period2_observed)],
+    flow[, sum(completed_both_observed)],
+    flow[, sum(in_primary_analysis)],
+    flow[, sum(in_first_period_benchmark)]
+  )
+)
+
+kable(flow_table, caption = "Table A. Participant flow")
+```
+
+```{r fig-flow, fig.width=11, fig.height=5.2}
+flow_nodes <- data.table(
+  id = c("registered", "randomized", "session1", "session2", "completed", "primary", "benchmark", "excluded"),
+  x = c(1.2, 3.6, 6.0, 8.4, 10.8, 13.2, 6.0, 10.8),
+  y = c(3.1, 3.1, 3.1, 3.1, 3.1, 3.1, 0.95, 5.25),
+  label = c(
+    paste0("Registered\nn = ", nrow(flow)),
+    paste0("Randomized\nn = ", flow[, sum(randomized)]),
+    paste0("Session 1 observed\nn = ", flow[, sum(period1_observed)]),
+    paste0("Session 2 observed\nn = ", flow[, sum(period2_observed)]),
+    paste0("Completed both\nn = ", flow[, sum(completed_both_observed)]),
+    paste0("Primary analytic sample\nn = ", flow[, sum(in_primary_analysis)]),
+    paste0("First-period benchmark\nn = ", flow[, sum(in_first_period_benchmark)]),
+    paste0(
+      "Excluded from primary\nn = ", flow[, sum(completed_both_observed)] - flow[, sum(in_primary_analysis)],
+      "\n1 impossible time > 600s\n1 washout < 24h"
+    )
+  )
+)
+
+flow_edges <- data.table(
+  x = c(1.95, 4.35, 6.75, 9.15, 6.0, 10.8),
+  y = c(3.1, 3.1, 3.1, 3.1, 2.45, 3.8),
+  xend = c(2.85, 5.25, 7.65, 10.05, 6.0, 10.8),
+  yend = c(3.1, 3.1, 3.1, 3.1, 1.45, 4.7)
+)
+
+ggplot() +
+  geom_segment(
+    data = flow_edges,
+    aes(x = x, y = y, xend = xend, yend = yend),
+    arrow = grid::arrow(length = grid::unit(0.18, "inches")),
+    linewidth = 0.45,
+    color = "gray35"
+  ) +
+  geom_label(
+    data = flow_nodes,
+    aes(x = x, y = y, label = label),
+    label.size = 0.25,
+    size = 3.5,
+    label.padding = grid::unit(0.18, "lines")
+  ) +
+  coord_cartesian(xlim = c(0.2, 14.5), ylim = c(0.3, 5.9), clip = "off") +
+  labs(
+    title = "Participant flow from registration to analytic samples",
+    subtitle = "Full distribution first, then attrition and protocol-based exclusions"
+  ) +
+  theme_void(base_size = 12)
+```
+
+```{r table-attrition}
+attrition_by_order <- flow[
+  randomized == 1L,
+  .(
+    started_session1 = sum(period1_observed),
+    dropped_before_session2 = sum(attrited_before_session2),
+    retained_completed_both = sum(completed_both_observed)
+  ),
+  by = assigned_order
+][order(assigned_order)]
+
+kable(attrition_by_order, caption = "Table B. Attrition by randomized order")
+```
+
+```{r table-compliance}
+compliance_table <- data.table(
+  issue = c(
+    "Impossible time > 600s",
+    "Washout violation < 24h",
+    "Missing one condition",
+    "Excluded from primary analysis"
+  ),
+  n = c(
+    flow[, sum(impossible_time)],
+    flow[, sum(washout_violation)],
+    flow[, sum(missing_primary_condition)],
+    flow[, sum(in_primary_analysis == 0L & completed_both_observed == 1L)]
+  )
+)
+
+kable(compliance_table, caption = "Table C. Compliance and exclusion reasons")
+```
+
+## Build paired analytic dataset
+
+The paired dataset keeps one row per primary analytic participant and standardizes condition-level secondary outcomes so later Rmds can work in `high_tempo` / `low_tempo` terms directly.
+
+```{r build-paired}
+paired <- flow[
+  in_primary_analysis == 1L,
+  .(
+    participant_id,
+    crossover_order,
+    first_session_is_high_tempo,
+    participant_age,
+    participant_gender,
+    participant_locale,
+    participant_group_index,
+    participant_group_label,
+    participant_registered_at,
+    participant_session1_planned_at,
+    participant_session2_planned_at,
+    elapsed_sessions_hours,
+    first_period_condition = audio_s1,
+    second_period_condition = audio_s2,
+    first_period_tte = plank_s1,
+    second_period_tte = plank_s2,
+    high_tempo_tte = plank_high_tempo,
+    low_tempo_tte = plank_low_tempo,
+    diff_high_minus_low,
+    energy_high_tempo = condition_from_sessions(audio_s1, audio_s2, pre_energy_pre_plank_s1, pre_energy_pre_plank_s2, "high_tempo"),
+    energy_low_tempo = condition_from_sessions(audio_s1, audio_s2, pre_energy_pre_plank_s1, pre_energy_pre_plank_s2, "low_tempo"),
+    motivation_high_tempo = condition_from_sessions(audio_s1, audio_s2, pre_motivation_pre_plank_s1, pre_motivation_pre_plank_s2, "high_tempo"),
+    motivation_low_tempo = condition_from_sessions(audio_s1, audio_s2, pre_motivation_pre_plank_s1, pre_motivation_pre_plank_s2, "low_tempo"),
+    music_liking_high_tempo = condition_from_sessions(audio_s1, audio_s2, pre_music_liking_s1, pre_music_liking_s2, "high_tempo"),
+    music_liking_low_tempo = condition_from_sessions(audio_s1, audio_s2, pre_music_liking_s1, pre_music_liking_s2, "low_tempo"),
+    rpe_high_tempo = condition_from_sessions(audio_s1, audio_s2, post_rpe_s1, post_rpe_s2, "high_tempo"),
+    rpe_low_tempo = condition_from_sessions(audio_s1, audio_s2, post_rpe_s1, post_rpe_s2, "low_tempo"),
+    headphones_high_tempo = condition_from_sessions(audio_s1, audio_s2, post_headphones_s1, post_headphones_s2, "high_tempo"),
+    headphones_low_tempo = condition_from_sessions(audio_s1, audio_s2, post_headphones_s1, post_headphones_s2, "low_tempo"),
+    pause_high_tempo = condition_from_sessions(audio_s1, audio_s2, post_plank_pause_s1, post_plank_pause_s2, "high_tempo"),
+    pause_low_tempo = condition_from_sessions(audio_s1, audio_s2, post_plank_pause_s1, post_plank_pause_s2, "low_tempo"),
+    volume_clear_high_tempo = condition_from_sessions(audio_s1, audio_s2, post_volume_clear_s1, post_volume_clear_s2, "high_tempo"),
+    volume_clear_low_tempo = condition_from_sessions(audio_s1, audio_s2, post_volume_clear_s1, post_volume_clear_s2, "low_tempo"),
+    activity_level_baseline = pre_activity_level_s1,
+    activity_type_baseline = pre_activity_type_s1,
+    plank_frequency_baseline = pre_plank_frequency_s1
+  )
+]
+
+stopifnot(uniqueN(paired$participant_id) == nrow(paired))
+```
+
+## Build long repeated-measures dataset
+
+The long dataset keeps one row per observed session and carries analysis flags so later model files can subset consistently without re-implementing the exclusion logic.
+
+```{r build-long}
+make_period_dt <- function(base, sn) {
+  audio_col <- paste0("audio_s", sn)
+  plank_col <- paste0("plank_s", sn)
+  out <- data.table(
+    participant_id = base$participant_id,
+    period = sn,
+    treatment = base[[audio_col]],
+    high_tempo = as.integer(base[[audio_col]] == "high_tempo"),
+    crossover_order = base$crossover_order,
+    first_session_is_high_tempo = base$first_session_is_high_tempo,
+    outcome_tte = base[[plank_col]],
+    pre_energy = base[[paste0("pre_energy_pre_plank_s", sn)]],
+    pre_motivation = base[[paste0("pre_motivation_pre_plank_s", sn)]],
+    pre_music_liking = base[[paste0("pre_music_liking_s", sn)]],
+    post_rpe = base[[paste0("post_rpe_s", sn)]],
+    post_headphones = base[[paste0("post_headphones_s", sn)]],
+    post_plank_pause = base[[paste0("post_plank_pause_s", sn)]],
+    post_volume_clear = base[[paste0("post_volume_clear_s", sn)]],
+    participant_age = base$participant_age,
+    participant_gender = base$participant_gender,
+    participant_locale = base$participant_locale,
+    activity_level_baseline = base$pre_activity_level_s1,
+    activity_type_baseline = base$pre_activity_type_s1,
+    plank_frequency_baseline = base$pre_plank_frequency_s1,
+    impossible_time = base$impossible_time,
+    washout_violation = base$washout_violation,
+    in_primary_analysis = base$in_primary_analysis,
+    in_first_period_benchmark = base$in_first_period_benchmark
+  )
+  out[!is.na(out$treatment) & !is.na(out$outcome_tte)]
+}
+
+long_dt <- rbindlist(list(make_period_dt(flow, 1L), make_period_dt(flow, 2L)), fill = TRUE)
+setorder(long_dt, participant_id, period)
+
+stopifnot(all(long_dt$period %in% c(1L, 2L)))
+```
+
+## Write derived outputs
+
+```{r write-derived}
+participant_flow <- flow[, .(
+  participant_id,
+  participant_age = age,
+  participant_gender = gender,
+  participant_locale = locale,
+  participant_group_index = group_index,
+  participant_group_label = group_label,
+  participant_sessions_completed = sessions_completed,
+  participant_registered_at = registered_at,
+  participant_session1_planned_at = session1_planned_at,
+  participant_session2_planned_at = session2_planned_at,
+  assigned_order,
+  registered,
+  randomized,
+  order_observed,
+  period1_observed,
+  period2_observed,
+  completed_both_observed,
+  attrited_before_session2,
+  missing_primary_condition,
+  impossible_time,
+  washout_violation,
+  in_primary_analysis,
+  in_first_period_benchmark,
+  primary_exclusion_reason,
+  benchmark_exclusion_reason
+)]
+
+write_derived_csv(participant_flow, "participant_flow.csv")
+write_derived_csv(paired, "paired_analysis.csv")
+write_derived_csv(long_dt, "long_repeated_measures.csv")
+```
+
+## Verification
+
+```{r verify}
+pf <- fread(derived_path("participant_flow.csv"))
+pd <- fread(derived_path("paired_analysis.csv"))
+ld <- fread(derived_path("long_repeated_measures.csv"))
+
+stopifnot(nrow(pf) == nrow(participants))
+stopifnot(all(wide$participant_id %in% pf$participant_id))
+stopifnot(nrow(pd) == flow[, sum(in_primary_analysis)])
+stopifnot(uniqueN(pd$participant_id) == nrow(pd))
+stopifnot(nrow(ld) == flow[, sum(period1_observed + period2_observed)])
+
+message("Wrote ", nrow(pf), " rows to ", derived_path("participant_flow.csv"))
+message("Wrote ", nrow(pd), " rows to ", derived_path("paired_analysis.csv"))
+message("Wrote ", nrow(ld), " rows to ", derived_path("long_repeated_measures.csv"))
+```
+

@@ -1,0 +1,241 @@
+---
+title: "Experiment analysis step 3: period and order diagnostics"
+subtitle: "Session-period checks for the primary crossover sample"
+author: "W241 Plank Study"
+date: "`r Sys.Date()`"
+output:
+  html_document:
+    toc: true
+    toc_depth: 2
+    number_sections: true
+---
+
+```{r setup, include=FALSE}
+library(knitr)
+knitr::opts_chunk$set(
+  echo = TRUE,
+  message = TRUE,
+  warning = TRUE,
+  collapse = TRUE,
+  fig.width = 7,
+  fig.height = 4.3,
+  dpi = 150
+)
+
+.analysis_dir <- {
+  fn <- tryCatch(knitr::current_input(), error = function(e) "")
+  if (is.null(fn) || !nzchar(fn)) {
+    normalizePath(getwd(), winslash = "/")
+  } else {
+    dirname(normalizePath(fn, winslash = "/"))
+  }
+}
+source(file.path(.analysis_dir, "00_analysis_setup.R"))
+library(data.table)
+library(ggplot2)
+library(knitr)
+library(sandwich)
+library(lmtest)
+```
+
+## Purpose
+
+This document checks whether broad period effects or order patterns appear large enough to threaten interpretation of the main crossover estimate.
+
+These diagnostics are descriptive first. They do not replace the primary model; they help explain whether session order or repeated exposure appears material and whether the period term in the fixed-effects model is doing useful work.
+
+## Load analytic datasets
+
+```{r load}
+paired <- sanitize_dt_ascii(fread(derived_path("paired_analysis.csv")))
+long_dt <- sanitize_dt_ascii(fread(derived_path("long_repeated_measures.csv")))
+
+long_primary <- long_dt[in_primary_analysis == 1L]
+
+stopifnot(uniqueN(long_primary$participant_id) == nrow(paired))
+stopifnot(nrow(long_primary) == 2L * nrow(paired))
+```
+
+## Period summaries
+
+```{r period-summary}
+period_summary <- long_primary[
+  ,
+  .(
+    n = .N,
+    mean_tte = mean(outcome_tte),
+    sd_tte = sd(outcome_tte),
+    median_tte = median(outcome_tte),
+    iqr_tte = IQR(outcome_tte)
+  ),
+  by = period
+][order(period)]
+
+period_summary[, `:=`(
+  mean_tte = round(mean_tte, 3),
+  sd_tte = round(sd_tte, 3),
+  median_tte = round(median_tte, 3),
+  iqr_tte = round(iqr_tte, 3)
+)]
+
+kable(period_summary, caption = "Session 1 vs Session 2 summaries")
+```
+
+## Period-by-order summaries
+
+```{r order-period-summary}
+order_period_summary <- long_primary[
+  ,
+  .(
+    n = .N,
+    mean_tte = mean(outcome_tte),
+    sd_tte = sd(outcome_tte),
+    mean_rpe = mean(post_rpe, na.rm = TRUE)
+  ),
+  by = .(crossover_order, period, treatment)
+][order(crossover_order, period)]
+
+order_period_summary[, `:=`(
+  mean_tte = round(mean_tte, 3),
+  sd_tte = round(sd_tte, 3),
+  mean_rpe = round(mean_rpe, 3)
+)]
+
+kable(order_period_summary, caption = "Period-by-order diagnostic summary")
+```
+
+## Session-period figures
+
+### Session 1 vs Session 2 boxplot
+
+```{r fig-period-box}
+long_primary[, period_label := factor(period, levels = c(1, 2), labels = c("Session 1", "Session 2"))]
+
+ggplot(long_primary, aes(x = period_label, y = outcome_tte, fill = period_label)) +
+  geom_violin(alpha = 0.35, color = NA, trim = FALSE) +
+  geom_boxplot(width = 0.12, fill = "white", outlier.shape = NA) +
+  geom_jitter(width = 0.08, height = 0, alpha = 0.55, size = 1.6) +
+  scale_fill_brewer(palette = "Set2", guide = "none") +
+  labs(
+    title = "Outcome distributions by session period",
+    subtitle = paste0("Primary analytic sample, n = ", uniqueN(long_primary$participant_id)),
+    x = NULL,
+    y = "Plank duration (seconds)"
+  ) +
+  theme_minimal(base_size = 12) +
+  theme(panel.grid.minor = element_blank())
+```
+
+### Order-arm trajectories across periods
+
+```{r fig-order-period}
+order_plot <- long_primary[
+  ,
+  .(mean_tte = mean(outcome_tte)),
+  by = .(crossover_order, period)
+]
+
+ggplot(order_plot, aes(x = period, y = mean_tte, color = crossover_order, group = crossover_order)) +
+  geom_line(linewidth = 0.7) +
+  geom_point(size = 2.1) +
+  scale_x_continuous(breaks = c(1, 2), labels = c("Session 1", "Session 2")) +
+  labs(
+    title = "Average plank time by order arm across periods",
+    subtitle = "Checks for sequence or learning patterns",
+    x = NULL,
+    y = "Mean plank duration (seconds)",
+    color = "Order arm"
+  ) +
+  theme_minimal(base_size = 12) +
+  theme(panel.grid.minor = element_blank(), legend.position = "top")
+```
+
+## Diagnostic models
+
+### Broad period check
+
+```{r period-check}
+period_check <- t.test(
+  long_primary[period == 2, outcome_tte],
+  long_primary[period == 1, outcome_tte],
+  paired = FALSE
+)
+
+period_check_tab <- data.table(
+  quantity = c(
+    "Mean Session 2",
+    "Mean Session 1",
+    "Difference (Session 2 - Session 1)",
+    "95% CI lower",
+    "95% CI upper",
+    "p-value"
+  ),
+  value = c(
+    mean(long_primary[period == 2, outcome_tte]),
+    mean(long_primary[period == 1, outcome_tte]),
+    diff(rev(period_check$estimate)),
+    period_check$conf.int[1],
+    period_check$conf.int[2],
+    period_check$p.value
+  )
+)
+
+period_check_tab[, value := round(value, 4)]
+kable(period_check_tab, caption = "Broad period comparison")
+```
+
+### Sequence diagnostic regression
+
+```{r sequence-regression}
+long_primary[, crossover_order := factor(crossover_order)]
+long_primary[, period_factor := factor(period)]
+
+diag_fit <- lm(
+  outcome_tte ~ period_factor * crossover_order,
+  data = long_primary
+)
+
+diag_vcov <- sandwich::vcovCL(diag_fit, cluster = ~ participant_id, type = "HC1")
+diag_ct <- lmtest::coeftest(diag_fit, vcov. = diag_vcov)
+
+diag_terms <- intersect(
+  c("period_factor2", "crossover_orderlow_tempo_first", "period_factor2:crossover_orderlow_tempo_first"),
+  rownames(diag_ct)
+)
+
+diag_results <- data.table(
+  term = diag_terms,
+  estimate = diag_ct[diag_terms, "Estimate"],
+  std_error = diag_ct[diag_terms, "Std. Error"],
+  p_value = diag_ct[diag_terms, "Pr(>|t|)"]
+)
+diag_results[, `:=`(
+  estimate = round(estimate, 4),
+  std_error = round(std_error, 4),
+  p_value = round(p_value, 4)
+)]
+
+kable(diag_results, caption = "Sequence diagnostic regression")
+```
+
+## Interpretation notes
+
+```{r interpretation}
+period_effect <- round(diag_ct["period_factor2", "Estimate"], 3)
+interaction_effect <- round(diag_ct["period_factor2:crossover_orderlow_tempo_first", "Estimate"], 3)
+
+message("Estimated broad period effect (Session 2 vs Session 1): ", period_effect, " seconds")
+message("Estimated period-by-order interaction: ", interaction_effect, " seconds")
+```
+
+## Verification
+
+```{r verify}
+stopifnot(uniqueN(long_primary$participant_id) == 38L)
+stopifnot(all(long_primary$period %in% c(1L, 2L)))
+stopifnot(nrow(order_period_summary) == 4L)
+
+message("Diagnostic sample participants: ", uniqueN(long_primary$participant_id))
+message("Diagnostic sample rows: ", nrow(long_primary))
+```
+

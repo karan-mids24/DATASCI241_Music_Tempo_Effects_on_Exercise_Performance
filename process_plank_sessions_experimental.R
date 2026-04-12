@@ -10,8 +10,9 @@
 #   elapsed_sessions_hours: (submitted_at_s2 - submitted_at_s1) in hours, UTC; NA if not computable
 # Timestamps are not written to the wide CSV (only elapsed is retained).
 #
-# - No email / contact_sheet_url in outputs
+# - No email / contact_sheet_url / name in outputs
 # - Raw trance/pop -> high_tempo/low_tempo
+# - Participant demographics (age / gender / locale) merged from participants export by participant_id
 # - Survey JSON: CSV doubled quotes fixed before jsonlite::fromJSON
 # - Integers: yes/no -> 0/1; volume_clear adds somewhat=2; Likert as integers; free text -> *_present 0/1
 
@@ -26,6 +27,7 @@ library(data.table)
 library(jsonlite)
 
 SRC <- "W241 Plank Study Data - sessions.csv"
+PARTICIPANTS_SRC <- "W241 Plank Study Data - participants.csv"
 OUT_WIDE <- "w241_experiment_wide.csv"
 OUT_CODEBOOK <- "w241_experiment_codebook.csv"
 
@@ -94,6 +96,54 @@ text_present <- function(x) {
   if (length(s) != 1L) return(NA_integer_)
   if (!nzchar(s) || s == "NA") return(0L)
   1L
+}
+
+load_participants <- function(path) {
+  if (!file.exists(path)) {
+    stop("Required participants file not found: ", path)
+  }
+  p <- fread(path)
+  stopifnot("id" %in% names(p))
+  setnames(p, "id", "participant_id")
+
+  keep <- intersect(
+    c("participant_id", "locale", "age", "gender", "group_index",
+      "group_label", "sessions_completed", "registered_at",
+      "session1_planned_at", "session2_planned_at"),
+    names(p)
+  )
+  p <- copy(p[, keep, with = FALSE])
+
+  if ("age" %in% names(p)) {
+    p[["age"]] <- suppressWarnings(as.numeric(p[["age"]]))
+    setnames(p, "age", "participant_age")
+  }
+  if ("gender" %in% names(p)) {
+    p[["gender"]] <- trimws(tolower(as.character(p[["gender"]])))
+    p[!nzchar(p[["gender"]]), "gender"] <- NA_character_
+    setnames(p, "gender", "participant_gender")
+  }
+  if ("locale" %in% names(p)) setnames(p, "locale", "participant_locale")
+  if ("group_index" %in% names(p)) setnames(p, "group_index", "participant_group_index")
+  if ("group_label" %in% names(p)) setnames(p, "group_label", "participant_group_label")
+  if ("sessions_completed" %in% names(p)) {
+    p[["sessions_completed"]] <- suppressWarnings(as.integer(p[["sessions_completed"]]))
+    setnames(p, "sessions_completed", "participant_sessions_completed")
+  }
+  if ("registered_at" %in% names(p)) {
+    p[["registered_at"]] <- as.POSIXct(p[["registered_at"]], tz = "UTC", format = "%Y-%m-%dT%H:%M:%OSZ")
+    setnames(p, "registered_at", "participant_registered_at")
+  }
+  if ("session1_planned_at" %in% names(p)) {
+    p[["session1_planned_at"]] <- as.POSIXct(p[["session1_planned_at"]], tz = "UTC", format = "%Y-%m-%dT%H:%M:%OSZ")
+    setnames(p, "session1_planned_at", "participant_session1_planned_at")
+  }
+  if ("session2_planned_at" %in% names(p)) {
+    p[["session2_planned_at"]] <- as.POSIXct(p[["session2_planned_at"]], tz = "UTC", format = "%Y-%m-%dT%H:%M:%OSZ")
+    setnames(p, "session2_planned_at", "participant_session2_planned_at")
+  }
+
+  unique(p, by = "participant_id")
 }
 
 # Global catalogs for string categoricals (excluding YN/volume handled above)
@@ -165,7 +215,6 @@ flatten_json_block <- function(obj, prefix, session_num) {
 # First pass: build catalogs from all rows (string fields)
 build_catalogs_pass <- function(dt) {
   for (i in seq_len(nrow(dt))) {
-    sn <- dt$session_num[i]
     pre <- parse_obj(dt$pre_task_answers[i])
     post <- parse_obj(dt$post_task_answers[i])
     for (obj in list(pre, post)) {
@@ -205,6 +254,7 @@ register_cat_codebooks_for_session <- function(keys, prefix, session_num) {
 # Load and clean long
 # ------------------------------------------------------------------------------
 dt <- fread(SRC)
+participants <- load_participants(PARTICIPANTS_SRC)
 stopifnot(all(c(
   "participant_id", "session_num", "audio_track",
   "plank_duration_sec", "pre_task_answers", "post_task_answers", "submitted_at"
@@ -235,7 +285,7 @@ build_catalogs_pass(dt)
 # Build per-session tables (outcomes + survey)
 # ------------------------------------------------------------------------------
 process_session <- function(dt, sn) {
-  d <- dt[session_num == sn]
+  d <- dt[dt$session_num == sn]
   if (nrow(d) == 0L) {
     return(data.table(participant_id = character()))
   }
@@ -305,6 +355,7 @@ all_pid <- unique(c(s1$participant_id, s2$participant_id))
 wide <- data.table(participant_id = all_pid)
 wide <- merge(wide, s1, by = "participant_id", all.x = TRUE)
 wide <- merge(wide, s2, by = "participant_id", all.x = TRUE)
+wide <- merge(wide, participants, by = "participant_id", all.x = TRUE)
 
 # completed_both
 wide[, completed_both := as.integer(!is.na(plank_s1) & !is.na(plank_s2))]
@@ -331,7 +382,7 @@ wide[, elapsed_sessions_hours := NA_real_]
 ok_time <- !is.na(wide$submitted_at_s1) & !is.na(wide$submitted_at_s2) & (wide$completed_both == 1L)
 wide[ok_time, elapsed_sessions_hours := as.numeric(difftime(submitted_at_s2, submitted_at_s1, units = "hours"))]
 
-# Drop timestamps from exported wide (only elapsed retained)
+# Drop raw timestamps from exported wide (only elapsed + participant schedule retained)
 wide[, c("submitted_at_s1", "submitted_at_s2") := NULL]
 
 # Column order: IDs and design first
@@ -341,8 +392,17 @@ core <- c(
   "plank_high_tempo", "plank_low_tempo", "diff_high_minus_low",
   "elapsed_sessions_hours"
 )
-rest <- setdiff(names(wide), core)
-setcolorder(wide, c(core, sort(rest)))
+participant_meta <- intersect(
+  c(
+    "participant_age", "participant_gender", "participant_locale",
+    "participant_group_index", "participant_group_label",
+    "participant_sessions_completed", "participant_registered_at",
+    "participant_session1_planned_at", "participant_session2_planned_at"
+  ),
+  names(wide)
+)
+rest <- setdiff(names(wide), c(core, participant_meta))
+setcolorder(wide, c(core, participant_meta, sort(rest)))
 
 fwrite(wide, OUT_WIDE)
 

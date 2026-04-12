@@ -1,0 +1,198 @@
+---
+title: "Experiment analysis step 5: precision comparison"
+subtitle: "Realized precision for crossover and first-period benchmark designs"
+author: "W241 Plank Study"
+date: "`r Sys.Date()`"
+output:
+  html_document:
+    toc: true
+    toc_depth: 2
+    number_sections: true
+---
+
+```{r setup, include=FALSE}
+library(knitr)
+knitr::opts_chunk$set(
+  echo = TRUE,
+  message = TRUE,
+  warning = TRUE,
+  collapse = TRUE,
+  fig.width = 7,
+  fig.height = 4.3,
+  dpi = 150
+)
+
+.analysis_dir <- {
+  fn <- tryCatch(knitr::current_input(), error = function(e) "")
+  if (is.null(fn) || !nzchar(fn)) {
+    normalizePath(getwd(), winslash = "/")
+  } else {
+    dirname(normalizePath(fn, winslash = "/"))
+  }
+}
+source(file.path(.analysis_dir, "00_analysis_setup.R"))
+library(data.table)
+library(ggplot2)
+library(knitr)
+```
+
+## Purpose
+
+This document compares the realized precision of:
+
+- the primary crossover design
+- the first-period-only parallel benchmark
+
+The comparison is based on standard errors, 95% CI widths, minimum detectable effects, and the benchmark sample size required to match crossover precision. This is more informative than retrospective observed power.
+
+## Load datasets
+
+```{r load}
+paired <- sanitize_dt_ascii(fread(derived_path("paired_analysis.csv")))
+long_dt <- sanitize_dt_ascii(fread(derived_path("long_repeated_measures.csv")))
+
+bench <- long_dt[
+  in_first_period_benchmark == 1L & period == 1L
+]
+
+stopifnot(nrow(paired) == 38L)
+stopifnot(nrow(bench) == 46L)
+```
+
+## Precision calculations
+
+```{r calculations}
+alpha_two_sided <- 0.05
+target_power <- 0.80
+z_alpha <- qnorm(1 - alpha_two_sided / 2)
+z_power <- qnorm(target_power)
+mde_multiplier <- z_alpha + z_power
+
+# Crossover / paired design
+n_pair <- nrow(paired)
+sd_diff <- sd(paired$diff_high_minus_low)
+se_pair <- sd_diff / sqrt(n_pair)
+ci_width_pair <- 2 * z_alpha * se_pair
+mde_pair <- mde_multiplier * se_pair
+
+# First-period parallel benchmark
+n_high <- bench[high_tempo == 1L, .N]
+n_low <- bench[high_tempo == 0L, .N]
+sd_high <- bench[high_tempo == 1L, sd(outcome_tte)]
+sd_low <- bench[high_tempo == 0L, sd(outcome_tte)]
+se_parallel <- sqrt((sd_high^2 / n_high) + (sd_low^2 / n_low))
+ci_width_parallel <- 2 * z_alpha * se_parallel
+mde_parallel <- mde_multiplier * se_parallel
+
+sd_pooled <- sqrt(
+  (((n_high - 1) * sd_high^2) + ((n_low - 1) * sd_low^2)) /
+    (n_high + n_low - 2)
+)
+
+# Equal-allocation parallel design needed to match the crossover SE
+n_per_arm_to_match <- ceiling((2 * sd_pooled^2) / (se_pair^2))
+total_n_to_match <- 2 * n_per_arm_to_match
+
+precision_tab <- data.table(
+  design = c("Primary crossover", "First-period benchmark"),
+  independent_n = c(n_pair, n_high + n_low),
+  observations = c(2 * n_pair, n_high + n_low),
+  relevant_sd = c(sd_diff, sd_pooled),
+  standard_error = c(se_pair, se_parallel),
+  ci_width_95 = c(ci_width_pair, ci_width_parallel),
+  mde_80_power = c(mde_pair, mde_parallel)
+)
+
+precision_tab[, `:=`(
+  relevant_sd = round(relevant_sd, 4),
+  standard_error = round(standard_error, 4),
+  ci_width_95 = round(ci_width_95, 4),
+  mde_80_power = round(mde_80_power, 4)
+)]
+```
+
+## Precision table
+
+```{r precision-table}
+kable(precision_tab, caption = "Realized precision by design")
+```
+
+```{r matching-n}
+matching_tab <- data.table(
+  quantity = c(
+    "Observed benchmark total N",
+    "Required benchmark total N to match crossover SE",
+    "Required benchmark N per arm to match crossover SE",
+    "Extra independent participants needed"
+  ),
+  value = c(
+    n_high + n_low,
+    total_n_to_match,
+    n_per_arm_to_match,
+    total_n_to_match - (n_high + n_low)
+  )
+)
+
+kable(matching_tab, caption = "Parallel-design sample size needed to match crossover precision")
+```
+
+## Precision comparison figure
+
+```{r fig-precision}
+plot_precision <- melt(
+  precision_tab[, .(design, standard_error, ci_width_95, mde_80_power)],
+  id.vars = "design",
+  variable.name = "metric",
+  value.name = "value"
+)
+
+plot_precision[, metric := factor(
+  metric,
+  levels = c("standard_error", "ci_width_95", "mde_80_power"),
+  labels = c("Standard error", "95% CI width", "MDE (80% power)")
+)]
+
+ggplot(plot_precision, aes(x = metric, y = value, fill = design)) +
+  geom_col(position = "dodge") +
+  labs(
+    title = "Realized precision comparison",
+    subtitle = "Smaller values indicate tighter design precision",
+    x = NULL,
+    y = "Seconds",
+    fill = "Design"
+  ) +
+  theme_minimal(base_size = 12) +
+  theme(panel.grid.minor = element_blank(), legend.position = "top")
+```
+
+## Interpretation notes
+
+```{r interpretation}
+precision_ratio <- se_parallel / se_pair
+ci_ratio <- ci_width_parallel / ci_width_pair
+
+interpretation_tab <- data.table(
+  quantity = c(
+    "Parallel SE / crossover SE",
+    "Parallel CI width / crossover CI width"
+  ),
+  value = round(c(precision_ratio, ci_ratio), 4)
+)
+
+kable(interpretation_tab, caption = "Relative precision loss in the benchmark design")
+```
+
+## Verification
+
+```{r verify}
+stopifnot(n_pair == 38L)
+stopifnot((n_high + n_low) == 46L)
+stopifnot(se_pair > 0)
+stopifnot(se_parallel > 0)
+stopifnot(total_n_to_match >= (n_high + n_low))
+
+message("Crossover SE: ", round(se_pair, 3))
+message("Benchmark SE: ", round(se_parallel, 3))
+message("Required parallel total N to match crossover SE: ", total_n_to_match)
+```
+

@@ -1,0 +1,59 @@
+id,locale,name,email,age,gender,group_index,group_label,sessions_completed,registered_at,session1_planned_at,session2_planned_at,email_opt_in
+057ec38f-c82a-497f-9de5-edbd9691b7c0,en,Susan Graham,satchgraham@gmail.com,63,female,1,trancepop,2,2026-03-24T01:27:29.684Z,2026-03-24T02:00:00.000Z,2026-03-25T18:00:00.000Z,yes
+0ddb65c1-5883-4ff2-9b40-5e78243a8439,en,Juan Marcelo Alvarez,jmalvarezb@gmail.com,45,male,1,trancepop,2,2026-03-27T21:01:42.050Z,2026-03-28T21:57:00.000Z,,yes
+81377784-e22b-4e0b-9873-7dd27f7c74a8,en,Shania Liu,shania.liu7@gmail.com,29,female,0,poptrance,2,2026-03-28T04:35:48.256Z,2026-03-28T04:35:00.000Z,2026-03-30T04:38:00.000Z,yes
+cd219427-2048-4131-920e-9fdd00393e03,en,Ryan Castillo,ryan.castillo256@gmail.com,29,male,1,trancepop,2,2026-03-28T04:36:00.780Z,2026-03-28T05:34:00.000Z,2026-03-29T06:40:00.000Z,yes
+8976df89-d963-4dc0-aae7-6d84a164b8f5,en,,mayankbrahmbhatt9@gmail.com,44,male,0,poptrance,2,2026-03-29T16:20:29.418Z,2026-03-31T16:20:00.000Z,2026-04-03T00:50:00.000Z,yes
+1b8a7981-007d-4d75-a6d5-10f03c01e0a8,es,Dario Rubin de Celis Schrupp,dariorubinschrupp@gmail.com,13,male,1,trancepop,2,2026-03-29T17:13:27.360Z,2026-03-29T17:14:00.000Z,2026-03-30T17:20:00.000Z,yes
+51f73f05-2b53-4817-9aee-c81f817d001e,en,Patrick McManus,pmcmanusesq@gmail.com,34,male,0,poptrance,2,2026-03-29T19:46:19.366Z,2026-03-30T23:30:00.000Z,2026-04-01T02:33:00.000Z,yes
+d648bf93-6b9a-4ef1-b634-5bf8aa5808c6,en,Bryce,brycepowerman@gmail.com,31,male,1,trancepop,0,2026-03-29T19:53:26.168Z,2026-03-31T00:00:00.000Z,,yes
+1c5da527-6d29-480c-8c5e-79906de10416,en,Thomas Dobbs,thomasjdobbs@gmail.com,36,male,0,poptrance,2,2026-03-29T20:01:03.679Z,2026-03-30T01:40:00.000Z,2026-03-31T02:00:00.000Z,yes
+95689a05-82da-4b78-ad4b-831bf60efe47,en,Meezie,arminkolenovic@gmail.com,36,male,1,trancepop,0,2026-03-29T20:06:26.376Z,2026-04-11T01:06:00.000Z,,yes
+3dbcd64c-e5ca-4948-8031-7ee59cb0d11c,en,Jayshree Patel,jayshreekpatel192@gmail.com,56,female,0,poptrance,2,2026-03-30T01:27:04.891Z,2026-03-30T01:30:00.000Z,2026-04-01T01:39:00.000Z,yes
+2e953262-989a-4aca-809b-d35e278e3699,en,Jonathan Hernandez,jonhernandez@berkeley.edu,36,male,1,trancepop,2,2026-03-30T01:31:14.062Z,2026-04-01T16:00:00.000Z,2026-04-03T17:03:00.000Z,yes
+1bc73c55-6837-4f19-9a4d-acd7b1fdd36f,en,Mihir Patel,mihirpatel93@gmail.com,33,male,0,poptrance,2,2026-03-30T01:51:10.242Z,2026-03-31T02:00:00.000Z,2026-04-02T02:30:00.000Z,yes
+31164555-dc95-4cc7-b9b0-5c5172c5f73e,es,Graciela Gutierrez Velasco,zapita@hotmail.com,43,female,1,trancepop,2,2026-03-30T01:55:17.654Z,2026-03-30T01:54:00.000Z,2026-03-31T02:07:00.000Z,yes
+ab5a6f88-0f11-4db5-91f2-b23eea70f29b,en,Clara Schrupp,@clara.esposa.de.catnoir12345@gmail.com,11,female,0,poptrance,0,2026-03-30T01:55:32.197Z,2026-03-30T01:55:00.000Z,,yes
+ac99d716-c387-4f1f-b138-746dd7ac1d0d,es,Tiki Schrupp,schrupptiki@gmail.com,12,male,1,trancepop,2,2026-03-30T01:55:32.291Z,2026-03-30T01:55:00.000Z,2026-03-31T02:07:00.000Z,yes
+a4a92d77-9185-4b68-b172-8e05c55888c2,es,Hugo Eduardo Schrupp Suarez,eduardo111081@gmail.com,44,male,0,poptrance,2,2026-03-30T01:55:33.902Z,2026-03-30T02:53:00.000Z,2026-03-31T02:20:00.000Z,yes
+1ff69fdf-fd33-463d-a7d0-c9e3e517a859,es,Eduardo Schrupp,easchruppg@gmail.com,14,male,1,trancepop,2,2026-03-30T01:57:08.105Z,2026-03-30T02:54:00.000Z,2026-03-31T02:15:00.000Z,yes
+eec4e9a5-8d2d-42d3-8958-4f1fd34994fd,en,Riya Patel,riyakpatel192@gmail.com,30,female,0,poptrance,2,2026-03-30T02:02:14.305Z,2026-03-30T02:05:00.000Z,2026-03-31T02:15:00.000Z,yes
+4c5854e9-f991-4516-b669-f99f8cf9247a,es,Clara Schrupp,clara.esposa.de.catnoir12345@gmail.com,11,female,1,trancepop,2,2026-03-30T02:03:34.273Z,2026-03-30T02:03:00.000Z,2026-03-31T02:15:00.000Z,yes
+abc0f1a2-4866-49d2-9008-558d467329ff,en,Kamlesh Patel,kamleshspatel192@gmail.com,59,male,0,poptrance,2,2026-03-30T02:06:14.066Z,2026-03-30T02:15:00.000Z,2026-03-31T02:48:00.000Z,yes
+a8d4043f-f539-4e18-8e48-3ada635703ae,en,Alex Alvarez,alexalva@berkeley.edu,28,male,1,trancepop,2,2026-03-30T02:15:09.950Z,2026-03-31T02:00:00.000Z,2026-04-02T02:12:00.000Z,yes
+bb46ead6-3acb-4e5f-81dd-4242516264c3,es,Carlos Schrupp,cschrupp@gmail.com,46,male,0,poptrance,2,2026-03-30T02:47:39.994Z,2026-03-30T02:47:00.000Z,,yes
+5920d38c-af83-416b-81ba-89540c7ac75c,en,Evan Powell,evan_powell@berkeley.edu,37,male,1,trancepop,0,2026-03-30T03:01:53.359Z,2026-03-30T15:00:00.000Z,,yes
+c3bde108-9dc0-49c2-936b-5dafc461abee,es,Mónica Fernández Rivero,fernandezriveromonica@gmail.com,38,female,0,poptrance,2,2026-03-30T03:36:23.365Z,2026-03-31T03:40:00.000Z,2026-04-01T02:30:00.000Z,yes
+35db2bb8-815c-494d-b2f5-cc2e1d1fa749,en,Karan Patel,karankpatel8585@gmail.com,26,male,1,trancepop,2,2026-03-30T03:54:57.098Z,2026-03-30T04:15:00.000Z,2026-03-31T04:36:00.000Z,yes
+77ffd22e-92aa-4245-b891-12b62246f50f,en,Christian Valdivia,gchrix@gmail.com,45,male,0,poptrance,2,2026-03-30T11:26:50.364Z,2026-03-30T11:26:00.000Z,2026-04-06T16:30:00.000Z,yes
+2559a8d0-dad2-4818-b063-e29c64baf05d,en,Lauren Bishop,laurenpbishop@gmail.com,36,female,1,trancepop,0,2026-03-30T15:19:17.868Z,2026-04-09T11:30:00.000Z,,yes
+fd58b8c4-6496-46e2-b7cc-6a7bbb71b314,en,,deity-shank-agency@duck.com,49,male,0,poptrance,0,2026-03-30T16:44:28.907Z,2026-04-02T16:00:00.000Z,,yes
+2d89deac-50c2-444f-8824-18926c3b73bb,en,Fabian Sören Temme,fabian@ethicalsaving.org,41,male,1,trancepop,0,2026-03-30T16:53:59.230Z,2026-04-04T18:50:00.000Z,2026-04-05T19:01:00.000Z,yes
+b72edc09-d650-4d03-a6af-9ea25fe06790,en,,ellie_parker@berkeley.edu,32,female,0,poptrance,2,2026-03-30T17:08:07.243Z,2026-03-30T17:10:00.000Z,2026-03-31T21:45:00.000Z,yes
+4f6cecca-6e02-46b1-b0fb-dd8e9c2cd9a6,es,Cecilia Schrupp,ceschrupp@gmail.com,34,female,1,trancepop,2,2026-03-30T19:23:53.952Z,2026-03-30T19:25:00.000Z,,yes
+8003d192-6e50-45ea-8340-c08dcb0bbb0d,en,,jennycpark@berkeley.edu,30,female,0,poptrance,1,2026-03-30T23:53:54.204Z,2026-04-01T18:30:00.000Z,2026-04-05T18:30:00.000Z,yes
+1b7a9db5-f963-4e03-8a1c-0dacd00cde19,en,Hagen Wayne Atkeson,hatkeson@berkeley.edu,33,male,1,trancepop,2,2026-03-31T01:04:47.215Z,2026-03-31T14:00:00.000Z,2026-04-01T14:30:00.000Z,yes
+74e93c5b-1d22-4a14-aadf-8c130f1e032d,es,Gabriela Schrupp,gschrupp@gmail.com,37,female,0,poptrance,2,2026-03-31T01:26:56.097Z,2026-03-31T01:26:00.000Z,,yes
+5681b22e-5a5a-41ab-b583-83e5faca7f0c,en,Robert Tiong,robert.k.tiong@gmail.com,30,male,1,trancepop,2,2026-03-31T05:24:05.132Z,2026-03-31T05:30:00.000Z,2026-04-02T03:00:00.000Z,yes
+6bb10a1a-8774-42e2-adf9-54c7ce2f8b0c,en,Eric Chan,ec2908@hotmail.com,30,male,0,poptrance,1,2026-03-31T07:54:58.990Z,2026-03-31T08:53:00.000Z,2026-04-01T08:06:00.000Z,yes
+ee70c559-57cb-47cc-88e1-be3ab8256ced,en,Josh Cai,jc96@outlook.com,30,male,1,trancepop,1,2026-03-31T07:55:28.385Z,2026-03-31T08:53:00.000Z,2026-04-02T08:00:00.000Z,yes
+7633ddb3-fd2b-40e6-b51d-2bb1ac6f7781,en,Lisa Kasamba,lisakasamba@berkeley.edu,31,female,0,poptrance,2,2026-04-01T08:29:54.803Z,2026-04-01T18:00:00.000Z,2026-04-02T18:16:00.000Z,yes
+21746785-8c5c-4bf1-83ed-6fe62879537d,en,,gratitudesergey@gmail.com,33,male,1,trancepop,2,2026-04-01T16:24:21.546Z,2026-04-01T16:24:00.000Z,2026-04-03T16:29:00.000Z,yes
+15833c45-0dcc-489a-ab5f-cd4b736d9923,es,Alberto Velasco,albertoavelasco@gmail.com,68,male,0,poptrance,2,2026-04-01T22:57:52.594Z,2026-04-01T23:10:00.000Z,2026-04-03T00:15:00.000Z,yes
+c4b58ebd-ff0e-40ae-87e7-32034d6473f4,en,Sarvan Singh Gill,r98moe@gmail.com,37,male,1,trancepop,2,2026-04-02T03:49:17.629Z,2026-04-02T03:48:00.000Z,2026-04-04T03:54:00.000Z,yes
+37978b45-1e43-4190-ad16-3cdfb898e289,en,Varun Pandey,varun.pandey.vit@gmail.com,27,male,0,poptrance,0,2026-04-03T19:41:42.442Z,2026-04-04T08:40:00.000Z,,yes
+aece9a10-2a4a-4162-b9fb-d586ed03d6aa,en,Vansh Patel,vpatel170503@gmail.com,21,male,1,trancepop,2,2026-04-04T05:02:23.098Z,2026-04-04T05:01:00.000Z,2026-04-05T17:00:00.000Z,yes
+d9c3087a-217c-45b8-a109-af63149d11f6,es,Gustavo Rolando Ramos Duran,gustavoramosduran@gmail.com,47,male,0,poptrance,2,2026-04-04T19:07:34.671Z,2026-04-05T19:07:00.000Z,,yes
+e37529ef-5a03-4828-a0ff-09479187931f,en,Krina  Patel,patelkrina2651@gmail.com,24,female,1,trancepop,1,2026-04-04T23:27:04.913Z,2026-04-05T12:25:00.000Z,2026-04-07T00:30:00.000Z,yes
+ecca814e-779f-4c3f-bf37-ce9b6089e563,en,Devam Sanjay Sheth,devamsheth0806@gmail.com,26,male,0,poptrance,2,2026-04-05T16:11:02.218Z,2026-04-05T17:10:00.000Z,2026-04-06T17:18:00.000Z,yes
+7450aafa-ea5f-4c6d-b247-77371bfb1300,es,Gabriel Salomon Kavlin Alterman,gabrielkavlin@gmail.com,42,male,1,trancepop,2,2026-04-05T22:42:50.661Z,2026-04-05T23:40:00.000Z,2026-04-06T23:00:00.000Z,yes
+2549833a-3e5d-4e70-be06-934fe21952bf,es,Guillermo Bellott,bellott9@gmail.com,44,male,0,poptrance,1,2026-04-06T15:53:16.214Z,2026-04-06T15:53:00.000Z,2026-04-07T16:11:00.000Z,yes
+80e46ec5-b5e2-45fb-b38f-4538e844a5d7,es,José Luis Tejero,jl_tejero@hotmail.com,45,male,1,trancepop,2,2026-04-06T15:57:20.502Z,2026-04-06T16:00:00.000Z,2026-04-08T16:00:00.000Z,yes
+c266af79-26ee-4f62-b16d-6966fe0bf58b,es,Luis Fernando Ramos Duran,fernandousd@hotmail.com,53,male,0,poptrance,2,2026-04-07T01:13:31.553Z,2026-04-07T02:09:00.000Z,2026-04-10T01:34:00.000Z,yes
+c5705b81-73bf-472f-a5c3-17a4f4d4c140,es,Nahiara Oyola,malaurats@gmail.com,16,female,1,trancepop,0,2026-04-07T02:20:46.907Z,2026-04-07T02:20:00.000Z,,yes
+5043f670-1a3b-42eb-bc41-876ce74c3ef6,es,Oscar Oyola Suarez,ooyolaeiag@gmail.com,43,male,0,poptrance,2,2026-04-07T02:26:04.881Z,2026-04-07T02:25:00.000Z,2026-04-09T02:43:00.000Z,yes
+38696c94-2413-4688-b833-5337ac87989f,es,Natalia Arrazola,natarsu@gmail.com,39,female,1,trancepop,1,2026-04-07T03:49:57.896Z,2026-04-07T03:49:00.000Z,2026-04-10T03:30:00.000Z,yes
+6fc77b0d-c3fb-4707-951e-9b9799689bb6,es,Carolina Tapia Suarez,carolina.tapia.suarez@gmail.com,26,female,0,poptrance,2,2026-04-07T04:31:08.351Z,2026-04-07T04:31:00.000Z,2026-04-09T04:35:00.000Z,yes
+93e6c886-e9bc-4c75-b410-b80200de635c,es,Nicolas Montenegro,nicolasmontenegros@hotmail.com,29,male,1,trancepop,2,2026-04-08T14:38:58.027Z,2026-04-08T18:30:00.000Z,2026-04-11T00:10:00.000Z,yes
+32b5782b-6a88-42ed-a1dd-eab5abdfa3a0,en,Ryan Test,ryan_castillo@berkeley.edu,29,male,0,poptrance,0,2026-04-12T02:56:20.540Z,2026-04-13T09:00:00.000Z,,yes
+0cbb8257-6ae2-4455-b5e8-f465390dfaca,es,WALTER JUSTINIANO ORTIZ,waljust.dtc@gmail.com,49,male,1,trancepop,0,2026-04-12T16:39:40.195Z,2026-04-12T21:00:00.000Z,,no

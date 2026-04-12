@@ -1,0 +1,136 @@
+---
+title: "Experiment analysis step 7: randomization inference"
+subtitle: "Design-based check for the primary crossover effect"
+author: "W241 Plank Study"
+date: "`r Sys.Date()`"
+output:
+  html_document:
+    toc: true
+    toc_depth: 2
+    number_sections: true
+---
+
+```{r setup, include=FALSE}
+library(knitr)
+knitr::opts_chunk$set(
+  echo = TRUE,
+  message = TRUE,
+  warning = TRUE,
+  collapse = TRUE,
+  fig.width = 7,
+  fig.height = 4.2,
+  dpi = 150
+)
+
+.analysis_dir <- {
+  fn <- tryCatch(knitr::current_input(), error = function(e) "")
+  if (is.null(fn) || !nzchar(fn)) {
+    normalizePath(getwd(), winslash = "/")
+  } else {
+    dirname(normalizePath(fn, winslash = "/"))
+  }
+}
+source(file.path(.analysis_dir, "00_analysis_setup.R"))
+library(data.table)
+library(ggplot2)
+library(knitr)
+```
+
+## Purpose
+
+This document provides a design-based randomization inference check for the main crossover effect. Under the sharp null of no treatment effect, each participant's observed paired difference could have appeared with either sign, so the randomization distribution can be approximated by random sign flips.
+
+## Load primary sample
+
+```{r load}
+paired <- sanitize_dt_ascii(fread(derived_path("paired_analysis.csv")))
+
+stopifnot(nrow(paired) == 38L)
+stopifnot(uniqueN(paired$participant_id) == nrow(paired))
+```
+
+## Observed statistic
+
+```{r observed}
+observed_diff <- mean(paired$diff_high_minus_low)
+
+obs_tab <- data.table(
+  quantity = c(
+    "Participants",
+    "Observed paired mean difference (high - low)"
+  ),
+  value = c(
+    nrow(paired),
+    observed_diff
+  )
+)
+obs_tab[, value := round(value, 4)]
+
+kable(obs_tab, caption = "Observed statistic for randomization inference")
+```
+
+## Randomization distribution
+
+```{r ri}
+set.seed(241)
+n_sims <- 10000L
+diffs <- paired$diff_high_minus_low
+
+ri_dist <- replicate(
+  n_sims,
+  mean(diffs * sample(c(-1, 1), length(diffs), replace = TRUE))
+)
+
+ri_two_sided_p <- mean(abs(ri_dist) >= abs(observed_diff))
+ri_one_sided_p <- mean(ri_dist >= observed_diff)
+
+ri_tab <- data.table(
+  quantity = c(
+    "Simulations",
+    "Observed paired mean difference",
+    "Two-sided RI p-value",
+    "One-sided RI p-value (high > low)"
+  ),
+  value = c(
+    n_sims,
+    observed_diff,
+    ri_two_sided_p,
+    ri_one_sided_p
+  )
+)
+ri_tab[, value := round(value, 4)]
+
+kable(ri_tab, caption = "Randomization inference summary")
+```
+
+## Figure
+
+```{r fig-ri}
+ri_plot <- data.table(statistic = ri_dist)
+
+ggplot(ri_plot, aes(x = statistic)) +
+  geom_histogram(bins = 40, fill = "#9ecae1", color = "white", linewidth = 0.2) +
+  geom_vline(xintercept = observed_diff, color = "#d94801", linewidth = 0.9) +
+  geom_vline(xintercept = -observed_diff, color = "#d94801", linewidth = 0.9, linetype = "dashed") +
+  labs(
+    title = "Randomization distribution under the sharp null",
+    subtitle = "Solid orange = observed statistic; dashed orange = symmetric reference",
+    x = "Paired mean difference (high - low)",
+    y = "Count"
+  ) +
+  theme_minimal(base_size = 12) +
+  theme(panel.grid.minor = element_blank())
+```
+
+## Verification
+
+```{r verify}
+stopifnot(length(ri_dist) == n_sims)
+stopifnot(ri_two_sided_p >= 0 && ri_two_sided_p <= 1)
+stopifnot(ri_one_sided_p >= 0 && ri_one_sided_p <= 1)
+
+message("Observed paired mean difference: ", round(observed_diff, 3))
+message("Two-sided RI p-value: ", round(ri_two_sided_p, 4))
+message("One-sided RI p-value: ", round(ri_one_sided_p, 4))
+```
+

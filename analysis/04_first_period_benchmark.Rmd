@@ -1,0 +1,250 @@
+---
+title: "Experiment analysis step 4: first-period benchmark"
+subtitle: "Parallel-arm benchmark using only period 1 outcomes"
+author: "W241 Plank Study"
+date: "`r Sys.Date()`"
+output:
+  html_document:
+    toc: true
+    toc_depth: 2
+    number_sections: true
+---
+
+```{r setup, include=FALSE}
+library(knitr)
+knitr::opts_chunk$set(
+  echo = TRUE,
+  message = TRUE,
+  warning = TRUE,
+  collapse = TRUE,
+  fig.width = 7,
+  fig.height = 4.3,
+  dpi = 150
+)
+
+.analysis_dir <- {
+  fn <- tryCatch(knitr::current_input(), error = function(e) "")
+  if (is.null(fn) || !nzchar(fn)) {
+    normalizePath(getwd(), winslash = "/")
+  } else {
+    dirname(normalizePath(fn, winslash = "/"))
+  }
+}
+source(file.path(.analysis_dir, "00_analysis_setup.R"))
+library(data.table)
+library(ggplot2)
+library(knitr)
+```
+
+## Purpose
+
+This document constructs the supplementary between-subject benchmark using only session 1 outcomes. That benchmark emulates a standard parallel-arm experiment by comparing participants assigned to `high_tempo` first versus `low_tempo` first before any second-session carryover can occur.
+
+## Load benchmark sample
+
+```{r load}
+flow <- sanitize_dt_ascii(fread(derived_path("participant_flow.csv")))
+long_dt <- sanitize_dt_ascii(fread(derived_path("long_repeated_measures.csv")))
+
+bench <- long_dt[
+  in_first_period_benchmark == 1L & period == 1L
+]
+
+bench[, treatment_label := fifelse(high_tempo == 1L, "High tempo first", "Low tempo first")]
+
+stopifnot(nrow(bench) == 46L)
+stopifnot(uniqueN(bench$participant_id) == nrow(bench))
+```
+
+## Benchmark sample summary
+
+```{r sample-summary}
+bench_sample <- data.table(
+  quantity = c(
+    "Benchmark participants",
+    "Assigned high tempo first",
+    "Assigned low tempo first"
+  ),
+  value = c(
+    nrow(bench),
+    bench[, sum(high_tempo == 1L)],
+    bench[, sum(high_tempo == 0L)]
+  )
+)
+
+kable(bench_sample, caption = "First-period benchmark sample")
+```
+
+## Balance checks
+
+```{r balance}
+bench[, active_at_least_weekly := as.integer(activity_level_baseline %in% c(3, 4))]
+
+balance_compact <- bench[
+  ,
+  .(
+    n = .N,
+    mean_age = mean(participant_age, na.rm = TRUE),
+    share_male = mean(participant_gender == "male", na.rm = TRUE),
+    share_active_at_least_weekly = mean(active_at_least_weekly, na.rm = TRUE)
+  ),
+  by = treatment_label
+]
+balance_compact[, `:=`(
+  mean_age = round(mean_age, 2),
+  share_male = round(100 * share_male, 1),
+  share_active_at_least_weekly = round(100 * share_active_at_least_weekly, 1)
+)]
+
+balance_numeric <- bench[
+  ,
+  .(
+    n = .N,
+    mean_age = mean(participant_age, na.rm = TRUE)
+  ),
+  by = treatment_label
+]
+balance_numeric[, mean_age := round(mean_age, 3)]
+
+balance_gender <- dcast(
+  bench[, .N, by = .(treatment_label, participant_gender)],
+  treatment_label ~ participant_gender,
+  value.var = "N",
+  fill = 0
+)
+
+balance_activity <- dcast(
+  bench[, .N, by = .(treatment_label, activity_level_baseline)],
+  treatment_label ~ activity_level_baseline,
+  value.var = "N",
+  fill = 0
+)
+
+kable(
+  balance_compact,
+  caption = "Compact randomization check artifact: counts, age, gender, and baseline activity"
+)
+kable(balance_numeric, caption = "Balance check: age by assigned first condition")
+kable(balance_gender, caption = "Balance check: gender counts")
+kable(balance_activity, caption = "Balance check: baseline activity counts")
+```
+
+The first-period benchmark arms are balanced in **counts** but not perfectly identical on observables. The main age difference is visible here, which is worth acknowledging. It is less threatening for the primary estimate because the main analysis uses the crossover design and participant fixed effects, which absorb stable participant-level differences.
+
+## Benchmark descriptives
+
+```{r descriptives}
+bench_desc <- bench[
+  ,
+  .(
+    n = .N,
+    mean_tte = mean(outcome_tte),
+    sd_tte = sd(outcome_tte),
+    median_tte = median(outcome_tte),
+    iqr_tte = IQR(outcome_tte)
+  ),
+  by = treatment_label
+]
+
+bench_desc[, `:=`(
+  mean_tte = round(mean_tte, 3),
+  sd_tte = round(sd_tte, 3),
+  median_tte = round(median_tte, 3),
+  iqr_tte = round(iqr_tte, 3)
+)]
+
+kable(bench_desc, caption = "Session 1 descriptives by assigned condition")
+```
+
+## Figure
+
+```{r fig-benchmark}
+ggplot(bench, aes(x = treatment_label, y = outcome_tte, fill = treatment_label)) +
+  geom_violin(alpha = 0.35, color = NA, trim = FALSE) +
+  geom_boxplot(width = 0.12, fill = "white", outlier.shape = NA) +
+  geom_jitter(width = 0.08, height = 0, alpha = 0.55, size = 1.6) +
+  scale_fill_brewer(palette = "Set2", guide = "none") +
+  labs(
+    title = "Session 1 benchmark by assigned first condition",
+    subtitle = paste0("n = ", nrow(bench), " independent participants"),
+    x = NULL,
+    y = "Plank duration (seconds)"
+  ) +
+  theme_minimal(base_size = 12) +
+  theme(panel.grid.minor = element_blank())
+```
+
+## Benchmark Model 1: raw contrast
+
+```{r raw-contrast}
+t_bench <- t.test(outcome_tte ~ high_tempo, data = bench)
+
+mean_high <- bench[high_tempo == 1L, mean(outcome_tte)]
+mean_low <- bench[high_tempo == 0L, mean(outcome_tte)]
+diff_raw <- mean_high - mean_low
+
+raw_results <- data.table(
+  quantity = c(
+    "Mean high-first session 1 TTE",
+    "Mean low-first session 1 TTE",
+    "Difference (high first - low first)",
+    "95% CI lower",
+    "95% CI upper",
+    "t statistic",
+    "p-value"
+  ),
+  value = c(
+    mean_high,
+    mean_low,
+    diff_raw,
+    t_bench$conf.int[1],
+    t_bench$conf.int[2],
+    unname(t_bench$statistic),
+    t_bench$p.value
+  )
+)
+raw_results[, value := round(value, 4)]
+
+kable(raw_results, caption = "Benchmark Model 1. Raw period-1 contrast")
+```
+
+## Benchmark Model 2: precision-adjusted regression
+
+```{r adjusted-model}
+bench[, participant_gender := factor(participant_gender)]
+
+adj_fit <- lm(
+  outcome_tte ~ high_tempo + participant_age + participant_gender,
+  data = bench
+)
+
+adj_sum <- summary(adj_fit)$coefficients
+
+adj_results <- data.table(
+  term = c("High-tempo first", "Participant age"),
+  estimate = c(adj_sum["high_tempo", "Estimate"], adj_sum["participant_age", "Estimate"]),
+  std_error = c(adj_sum["high_tempo", "Std. Error"], adj_sum["participant_age", "Std. Error"]),
+  p_value = c(adj_sum["high_tempo", "Pr(>|t|)"], adj_sum["participant_age", "Pr(>|t|)"])
+)
+
+adj_results[, `:=`(
+  estimate = round(estimate, 4),
+  std_error = round(std_error, 4),
+  p_value = round(p_value, 4)
+)]
+
+kable(adj_results, caption = "Benchmark Model 2. Precision-adjusted regression")
+```
+
+## Verification
+
+```{r verify}
+stopifnot(nrow(bench) == 46L)
+stopifnot(uniqueN(bench$participant_id) == 46L)
+stopifnot(all(bench$period == 1L))
+
+message("Benchmark participants: ", nrow(bench))
+message("Raw benchmark difference: ", round(diff_raw, 3))
+message("Adjusted benchmark coefficient: ", round(adj_sum["high_tempo", "Estimate"], 3))
+```
+

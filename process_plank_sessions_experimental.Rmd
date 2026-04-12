@@ -24,7 +24,7 @@ knitr::opts_chunk$set(
 
 This document **documents and runs** the transformation from the app export **`W241 Plank Study Data - sessions.csv`** (long format: one row per participant-session) into:
 
-1. **`w241_experiment_wide.csv`** — one row per `participant_id`, analysis-ready integers for survey fields, no email.
+1. **`w241_experiment_wide.csv`** — one row per `participant_id`, analysis-ready survey fields plus participant demographics/metadata, with no email or name.
 2. **`w241_experiment_codebook.csv`** — maps integer codes to labels for columns that are coded (survey and process items).
 
 Design choices (high level):
@@ -32,6 +32,7 @@ Design choices (high level):
 - **Music labels:** raw `trance` / `pop` are renamed to **`high_tempo`** and **`low_tempo`** for clarity in analysis files.
 - **Completion:** **`completed_both`** is `1` if both sessions exist after deduplication, **`0` if only one session**. Partial completers are **kept** in the wide file (not dropped).
 - **Time:** Raw submission timestamps are used **only** to compute **`elapsed_sessions_hours`** between session 1 and session 2 (UTC). They are **not** written to the wide CSV (privacy and simplicity).
+- **Participant metadata:** non-PII participant fields such as **`age`**, **`gender`**, **`locale`**, and planned-session metadata are merged from **`W241 Plank Study Data - participants.csv`** by `participant_id`.
 - **Survey JSON:** Parsed to **integer** columns; yes/no \(\rightarrow\) 0/1; `volume_clear` adds **somewhat = 2**; free-text fields become **0/1 presence** columns (text itself is not exported).
 
 Run the whole document with **Knit** (or `rmarkdown::render()`) to regenerate the CSVs. Input/output paths are built from **`knitr::current_input()`** so **`W241 Plank Study Data - sessions.csv`** is read from the same folder as this Rmd, even when the process cwd is elsewhere (no reliance on the Knit working directory).
@@ -54,6 +55,7 @@ library(jsonlite)
   }
 }
 SRC <- file.path(.rmd_dir, "W241 Plank Study Data - sessions.csv")
+PARTICIPANTS_SRC <- file.path(.rmd_dir, "W241 Plank Study Data - participants.csv")
 OUT_WIDE <- file.path(.rmd_dir, "w241_experiment_wide.csv")
 OUT_CODEBOOK <- file.path(.rmd_dir, "w241_experiment_codebook.csv")
 
@@ -139,6 +141,60 @@ text_present <- function(x) {
   if (length(s) != 1L) return(NA_integer_)
   if (!nzchar(s) || s == "NA") return(0L)
   1L
+}
+```
+
+### Participant metadata
+
+The sessions export provides the repeated-measures outcomes and survey JSON, while the participant export provides baseline non-PII fields keyed by `participant_id`. We merge those fields into the final wide file so later analysis does not have to re-open the participant CSV.
+
+```{r fn-participants}
+load_participants <- function(path) {
+  if (!file.exists(path)) {
+    stop("Required participants file not found: ", path)
+  }
+  p <- fread(path)
+  stopifnot("id" %in% names(p))
+  setnames(p, "id", "participant_id")
+
+  keep <- intersect(
+    c("participant_id", "locale", "age", "gender", "group_index",
+      "group_label", "sessions_completed", "registered_at",
+      "session1_planned_at", "session2_planned_at"),
+    names(p)
+  )
+  p <- copy(p[, keep, with = FALSE])
+
+  if ("age" %in% names(p)) {
+    p[["age"]] <- suppressWarnings(as.numeric(p[["age"]]))
+    setnames(p, "age", "participant_age")
+  }
+  if ("gender" %in% names(p)) {
+    p[["gender"]] <- trimws(tolower(as.character(p[["gender"]])))
+    p[!nzchar(p[["gender"]]), "gender"] <- NA_character_
+    setnames(p, "gender", "participant_gender")
+  }
+  if ("locale" %in% names(p)) setnames(p, "locale", "participant_locale")
+  if ("group_index" %in% names(p)) setnames(p, "group_index", "participant_group_index")
+  if ("group_label" %in% names(p)) setnames(p, "group_label", "participant_group_label")
+  if ("sessions_completed" %in% names(p)) {
+    p[["sessions_completed"]] <- suppressWarnings(as.integer(p[["sessions_completed"]]))
+    setnames(p, "sessions_completed", "participant_sessions_completed")
+  }
+  if ("registered_at" %in% names(p)) {
+    p[["registered_at"]] <- as.POSIXct(p[["registered_at"]], tz = "UTC", format = "%Y-%m-%dT%H:%M:%OSZ")
+    setnames(p, "registered_at", "participant_registered_at")
+  }
+  if ("session1_planned_at" %in% names(p)) {
+    p[["session1_planned_at"]] <- as.POSIXct(p[["session1_planned_at"]], tz = "UTC", format = "%Y-%m-%dT%H:%M:%OSZ")
+    setnames(p, "session1_planned_at", "participant_session1_planned_at")
+  }
+  if ("session2_planned_at" %in% names(p)) {
+    p[["session2_planned_at"]] <- as.POSIXct(p[["session2_planned_at"]], tz = "UTC", format = "%Y-%m-%dT%H:%M:%OSZ")
+    setnames(p, "session2_planned_at", "participant_session2_planned_at")
+  }
+
+  unique(p, by = "participant_id")
 }
 ```
 
@@ -263,18 +319,20 @@ register_cat_codebooks_for_session <- function(keys, prefix, session_num) {
 
 ---
 
-## Load long data, remove PII, map audio, deduplicate
+## Load long data and participant metadata, map audio, deduplicate
 
 **Steps:**
 
 1. Read CSV; require core column names.
-2. Drop **`email`** and **`contact_sheet_url`** so they never appear in outputs.
-3. Normalize and map **`audio_track`** via `AUDIO_MAP`; stop if unknown values appear.
-4. Parse **`submitted_at`** as UTC (ISO format with `Z`); fallback parser if the first attempt yields all `NA`.
-5. Sort by participant, session, time; for each (**`participant_id`**, **`session_num`**) keep the **last** row (latest submission) to resolve duplicate submissions.
+2. Read the participant export keyed by **`participant_id`** and keep non-PII metadata for the final wide file.
+3. Drop **`email`** and **`contact_sheet_url`** from the sessions table so they never appear in outputs.
+4. Normalize and map **`audio_track`** via `AUDIO_MAP`; stop if unknown values appear.
+5. Parse **`submitted_at`** as UTC (ISO format with `Z`); fallback parser if the first attempt yields all `NA`.
+6. Sort by participant, session, time; for each (**`participant_id`**, **`session_num`**) keep the **last** row (latest submission) to resolve duplicate submissions.
 
 ```{r load-clean}
 dt <- fread(SRC)
+participants <- load_participants(PARTICIPANTS_SRC)
 stopifnot(all(c(
   "participant_id", "session_num", "audio_track",
   "plank_duration_sec", "pre_task_answers", "post_task_answers", "submitted_at"
@@ -317,7 +375,7 @@ We then **outer-join** on **`participant_id`** so every participant appears once
 
 ```{r process-session}
 process_session <- function(dt, sn) {
-  d <- dt[session_num == sn]
+  d <- dt[dt$session_num == sn]
   if (nrow(d) == 0L) {
     return(data.table(participant_id = character()))
   }
@@ -386,6 +444,7 @@ all_pid <- unique(c(s1$participant_id, s2$participant_id))
 wide <- data.table(participant_id = all_pid)
 wide <- merge(wide, s1, by = "participant_id", all.x = TRUE)
 wide <- merge(wide, s2, by = "participant_id", all.x = TRUE)
+wide <- merge(wide, participants, by = "participant_id", all.x = TRUE)
 ```
 
 ```{r verify-counts, echo=TRUE}
@@ -406,6 +465,8 @@ stopifnot(uniqueN(s1$participant_id) == nrow(s1))
 stopifnot(uniqueN(s2$participant_id) == nrow(s2))
 stopifnot(nrow(wide) == length(pid_s12))
 stopifnot(setequal(wide$participant_id, pid_s12))
+stopifnot(sum(is.na(wide$participant_age)) == 0L)
+stopifnot(sum(is.na(wide$participant_gender)) == 0L)
 ```
 
 ---
@@ -418,8 +479,9 @@ stopifnot(setequal(wide$participant_id, pid_s12))
 - **`plank_high_tempo`** / **`plank_low_tempo`:** Plank duration under each condition, filled from whichever session had that **`audio_*`**.
 - **`diff_high_minus_low`:** Paired contrast when both conditions observed; otherwise may be `NA`.
 - **`elapsed_sessions_hours`:** `difftime(session 2, session 1, units = "hours")` in UTC, only when both timestamps exist and **`completed_both == 1`**; else **`NA`**.
+- **`participant_*`:** Non-PII participant metadata merged from the participant export for later analysis without reopening raw participant files.
 
-Finally, **`submitted_at_s1`** and **`submitted_at_s2`** are **removed** from the exported wide file so only **`elapsed_sessions_hours`** remains as timing information.
+Finally, raw session submission timestamps are **removed** from the exported wide file so only **`elapsed_sessions_hours`** plus the participant-planned timing metadata remain.
 
 ```{r derive-wide}
 wide[, completed_both := as.integer(!is.na(plank_s1) & !is.na(plank_s2))]
@@ -453,8 +515,17 @@ core <- c(
   "plank_high_tempo", "plank_low_tempo", "diff_high_minus_low",
   "elapsed_sessions_hours"
 )
-rest <- setdiff(names(wide), core)
-setcolorder(wide, c(core, sort(rest)))
+participant_meta <- intersect(
+  c(
+    "participant_age", "participant_gender", "participant_locale",
+    "participant_group_index", "participant_group_label",
+    "participant_sessions_completed", "participant_registered_at",
+    "participant_session1_planned_at", "participant_session2_planned_at"
+  ),
+  names(wide)
+)
+rest <- setdiff(names(wide), c(core, participant_meta))
+setcolorder(wide, c(core, participant_meta, sort(rest)))
 ```
 
 ---

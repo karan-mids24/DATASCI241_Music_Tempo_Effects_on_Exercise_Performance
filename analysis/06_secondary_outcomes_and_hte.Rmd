@@ -1,0 +1,196 @@
+---
+title: "Experiment analysis step 6: secondary outcomes and HTE"
+subtitle: "Exploratory secondary outcomes and heterogeneous treatment effects"
+author: "W241 Plank Study"
+date: "`r Sys.Date()`"
+output:
+  html_document:
+    toc: true
+    toc_depth: 2
+    number_sections: true
+---
+
+```{r setup, include=FALSE}
+library(knitr)
+knitr::opts_chunk$set(
+  echo = TRUE,
+  message = TRUE,
+  warning = TRUE,
+  collapse = TRUE
+)
+
+.analysis_dir <- {
+  fn <- tryCatch(knitr::current_input(), error = function(e) "")
+  if (is.null(fn) || !nzchar(fn)) {
+    normalizePath(getwd(), winslash = "/")
+  } else {
+    dirname(normalizePath(fn, winslash = "/"))
+  }
+}
+source(file.path(.analysis_dir, "00_analysis_setup.R"))
+library(data.table)
+library(knitr)
+library(sandwich)
+library(lmtest)
+```
+
+## Purpose
+
+This document treats secondary outcomes and subgroup effects as exploratory.
+
+- Secondary outcomes: `RPE`, `motivation`, and `energy`
+- HTE targets: `age`, `gender`, and baseline `activity level` as a proxy for fitness
+
+These results are reported after the main crossover estimate and interpreted cautiously.
+
+## Load analytic datasets
+
+```{r load}
+paired <- sanitize_dt_ascii(fread(derived_path("paired_analysis.csv")))
+long_dt <- sanitize_dt_ascii(fread(derived_path("long_repeated_measures.csv")))
+long_primary <- long_dt[in_primary_analysis == 1L]
+
+stopifnot(nrow(paired) == 38L)
+stopifnot(uniqueN(long_primary$participant_id) == 38L)
+```
+
+## Secondary outcomes: paired contrasts
+
+```{r paired-secondary}
+secondary_specs <- list(
+  list(label = "RPE", high = "rpe_high_tempo", low = "rpe_low_tempo"),
+  list(label = "Motivation", high = "motivation_high_tempo", low = "motivation_low_tempo"),
+  list(label = "Energy", high = "energy_high_tempo", low = "energy_low_tempo")
+)
+
+secondary_rows <- lapply(secondary_specs, function(spec) {
+  hi <- paired[[spec$high]]
+  lo <- paired[[spec$low]]
+  tt <- t.test(hi, lo, paired = TRUE)
+  data.table(
+    outcome = spec$label,
+    mean_high = mean(hi, na.rm = TRUE),
+    mean_low = mean(lo, na.rm = TRUE),
+    mean_diff_high_minus_low = mean(hi - lo, na.rm = TRUE),
+    conf_low = tt$conf.int[1],
+    conf_high = tt$conf.int[2],
+    p_value = tt$p.value
+  )
+})
+
+secondary_paired <- rbindlist(secondary_rows)
+secondary_paired[, `:=`(
+  mean_high = round(mean_high, 4),
+  mean_low = round(mean_low, 4),
+  mean_diff_high_minus_low = round(mean_diff_high_minus_low, 4),
+  conf_low = round(conf_low, 4),
+  conf_high = round(conf_high, 4),
+  p_value = round(p_value, 4)
+)]
+
+kable(secondary_paired, caption = "Exploratory paired contrasts for secondary outcomes")
+```
+
+## Secondary outcomes: fixed-effects versions
+
+```{r fe-secondary}
+run_fe_secondary <- function(data, outcome_var, label) {
+  tmp <- copy(data)
+  tmp[["participant_id"]] <- factor(tmp[["participant_id"]])
+  tmp[["period_factor"]] <- factor(tmp[["period"]])
+
+  fit <- lm(
+    reformulate(c("high_tempo", "period_factor", "participant_id"), response = outcome_var),
+    data = tmp
+  )
+  vc <- sandwich::vcovCL(fit, cluster = ~ participant_id, type = "HC1")
+  ct <- lmtest::coeftest(fit, vcov. = vc)
+
+  data.table(
+    outcome = label,
+    estimate = unname(ct["high_tempo", "Estimate"]),
+    std_error = unname(ct["high_tempo", "Std. Error"]),
+    p_value = unname(ct["high_tempo", "Pr(>|t|)"])
+  )
+}
+
+secondary_fe <- rbindlist(list(
+  run_fe_secondary(long_primary, "post_rpe", "RPE"),
+  run_fe_secondary(long_primary, "pre_motivation", "Motivation"),
+  run_fe_secondary(long_primary, "pre_energy", "Energy")
+))
+
+secondary_fe[, `:=`(
+  estimate = round(estimate, 4),
+  std_error = round(std_error, 4),
+  p_value = round(p_value, 4)
+)]
+
+kable(secondary_fe, caption = "Exploratory fixed-effects treatment coefficients for secondary outcomes")
+```
+
+## HTE setup
+
+We estimate treatment interactions on the primary TTE outcome. Because subgroup results are exploratory, we report Bonferroni-adjusted p-values across the three planned subgroup tests.
+
+```{r hte-setup}
+hte_data <- copy(long_primary)
+hte_data[, participant_id := factor(participant_id)]
+hte_data[, period_factor := factor(period)]
+hte_data[, age_centered := participant_age - mean(participant_age, na.rm = TRUE)]
+hte_data[, male_indicator := as.integer(participant_gender == "male")]
+hte_data[, activity_level_ord := as.numeric(activity_level_baseline)]
+```
+
+## HTE models
+
+```{r hte-models}
+run_hte <- function(data, subgroup_var, label) {
+  fit <- lm(
+    reformulate(
+      c("high_tempo", subgroup_var, paste0("high_tempo:", subgroup_var), "period_factor", "participant_id"),
+      response = "outcome_tte"
+    ),
+    data = data
+  )
+  vc <- sandwich::vcovCL(fit, cluster = ~ participant_id, type = "HC1")
+  ct <- lmtest::coeftest(fit, vcov. = vc)
+  term <- paste0("high_tempo:", subgroup_var)
+
+  data.table(
+    subgroup = label,
+    interaction_term = term,
+    estimate = unname(ct[term, "Estimate"]),
+    std_error = unname(ct[term, "Std. Error"]),
+    p_value = unname(ct[term, "Pr(>|t|)"])
+  )
+}
+
+hte_results <- rbindlist(list(
+  run_hte(hte_data, "age_centered", "Age"),
+  run_hte(hte_data, "male_indicator", "Gender (male vs not male)"),
+  run_hte(hte_data, "activity_level_ord", "Activity level / fitness proxy")
+))
+
+hte_results[, p_value_bonferroni := p.adjust(p_value, method = "bonferroni")]
+hte_results[, `:=`(
+  estimate = round(estimate, 4),
+  std_error = round(std_error, 4),
+  p_value = round(p_value, 4),
+  p_value_bonferroni = round(p_value_bonferroni, 4)
+)]
+
+kable(hte_results, caption = "Exploratory HTE interaction results with Bonferroni correction")
+```
+
+## Verification
+
+```{r verify}
+stopifnot(nrow(secondary_paired) == 3L)
+stopifnot(nrow(secondary_fe) == 3L)
+stopifnot(nrow(hte_results) == 3L)
+
+message("Secondary outcomes analyzed: ", paste(secondary_paired$outcome, collapse = ", "))
+message("HTE tests analyzed: ", paste(hte_results$subgroup, collapse = ", "))
+```
+

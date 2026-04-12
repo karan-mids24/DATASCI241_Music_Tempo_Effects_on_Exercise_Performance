@@ -1,0 +1,239 @@
+---
+title: "W241 Plank Study Experimental Report"
+subtitle: "Crossover and benchmark analysis"
+author: "W241 Plank Study"
+date: "`r Sys.Date()`"
+output:
+  pdf_document:
+    toc: true
+    toc_depth: 2
+    number_sections: true
+    latex_engine: pdflatex
+---
+
+```{r setup, include=FALSE}
+options(knitr.duplicate.label = "allow")
+
+library(knitr)
+knitr::opts_chunk$set(
+  echo = FALSE,
+  message = FALSE,
+  warning = FALSE,
+  collapse = TRUE,
+  fig.width = 7,
+  fig.height = 4.4,
+  dpi = 150
+)
+
+.analysis_dir <- {
+  fn <- tryCatch(knitr::current_input(), error = function(e) "")
+  if (is.null(fn) || !nzchar(fn)) {
+    normalizePath(getwd(), winslash = "/")
+  } else {
+    dirname(normalizePath(fn, winslash = "/"))
+  }
+}
+source(file.path(.analysis_dir, "00_analysis_setup.R"))
+library(data.table)
+library(ggplot2)
+library(knitr)
+library(sandwich)
+library(lmtest)
+
+strip_yaml_and_setup <- function(path) {
+  lines <- readLines(path, warn = FALSE)
+
+  if (length(lines) >= 1L && trimws(lines[1L]) == "---") {
+    end_yaml <- which(trimws(lines[-1L]) == "---")[1L] + 1L
+    lines <- lines[(end_yaml + 1L):length(lines)]
+  }
+
+  setup_start <- grep("^```\\{r setup", lines)[1L]
+  if (!is.na(setup_start)) {
+    setup_end <- setup_start + which(lines[setup_start:length(lines)] == "```")[1L] - 1L
+    lines <- lines[-seq.int(setup_start, setup_end)]
+  }
+
+  purpose_start <- match("## Purpose", lines)
+  if (!is.na(purpose_start)) {
+    next_heading <- grep("^## ", lines[(purpose_start + 1L):length(lines)])[1L]
+    if (is.na(next_heading)) {
+      lines <- lines[seq_len(purpose_start - 1L)]
+    } else {
+      purpose_end <- purpose_start + next_heading - 1L
+      lines <- lines[-seq.int(purpose_start, purpose_end - 1L)]
+    }
+  }
+
+  heading_only_patterns <- c("^## Load ", "^## Verification$")
+  for (pat in heading_only_patterns) {
+    hit <- grep(pat, lines)
+    if (length(hit)) lines <- lines[-hit]
+  }
+
+  lines
+}
+
+include_section <- function(filename) {
+  body <- strip_yaml_and_setup(file.path(.analysis_dir, filename))
+  cat(knit_child(text = body, envir = environment(), quiet = TRUE), sep = "\n")
+}
+```
+
+## Report Structure
+
+This report follows the order in the experiment analysis plan:
+
+1. participant flow, attrition, and exclusions
+2. primary crossover effect
+3. period and order diagnostics
+4. first-period benchmark
+5. realized precision comparison
+6. secondary outcomes and HTE
+7. randomization inference
+
+## Study Overview
+
+The primary estimand is the **within-person effect of high-tempo versus low-tempo music on plank time-to-exhaustion**, measured in seconds. The main estimate uses the randomized crossover design, so each participant serves as their own control and stable participant-level differences are absorbed by construction.
+
+The first-period benchmark is supplementary. It asks what the treatment contrast would have looked like if the study had been analyzed as a standard parallel-arm design using only session 1. That benchmark is included to clarify the design choice, not to replace the crossover estimate.
+
+## Participant Flow And Analysis Populations
+
+The report begins with the full registered participant roster, then narrows to observed outcomes and protocol-valid analytic samples. This keeps attrition, missingness, and protocol exclusions visible before any inferential models are introduced.
+
+```{r section-01, results='asis'}
+include_section("01_analysis_populations.Rmd")
+```
+
+## Primary Crossover Estimate
+
+With the populations fixed, the next step is the primary within-subject treatment estimate. The emphasis here is the design-consistent sequence: paired descriptives first, then the paired mean difference, then the fixed-effects crossover model with a period adjustment.
+
+```{r section-02, results='asis'}
+include_section("02_primary_crossover_analysis.Rmd")
+```
+
+## Period And Order Diagnostics
+
+After the main estimate, the report checks whether broad period effects or order patterns appear large enough to complicate interpretation. These diagnostics are supportive rather than alternative estimators.
+
+```{r section-03, results='asis'}
+include_section("03_period_order_diagnostics.Rmd")
+```
+
+## First-Period Benchmark
+
+Only after the primary crossover evidence and the period/order checks do we turn to the first-period benchmark. This keeps the benchmark in its intended role: a secondary comparison that illustrates what a parallel-arm analysis would have looked like before carryover could matter.
+
+```{r section-04, results='asis'}
+include_section("04_first_period_benchmark.Rmd")
+```
+
+## Results At A Glance
+
+The key treatment-effect results are consolidated here so the reader can compare the primary crossover estimate, the supplementary benchmark, and the design-based inference in one place.
+
+```{r results-at-a-glance}
+paired_master <- sanitize_dt_ascii(fread(derived_path("paired_analysis.csv")))
+long_master <- sanitize_dt_ascii(fread(derived_path("long_repeated_measures.csv")))
+long_primary_master <- copy(long_master[in_primary_analysis == 1L])
+bench_master <- copy(long_master[in_first_period_benchmark == 1L & period == 1L])
+
+t_paired_master <- t.test(paired_master$high_tempo_tte, paired_master$low_tempo_tte, paired = TRUE)
+paired_effect_master <- mean(paired_master$diff_high_minus_low)
+paired_ci_master <- unname(t_paired_master$conf.int)
+
+long_primary_master[["participant_id"]] <- factor(long_primary_master[["participant_id"]])
+long_primary_master[["period_factor"]] <- factor(long_primary_master[["period"]])
+fe_master <- lm(outcome_tte ~ high_tempo + period_factor + participant_id, data = long_primary_master)
+fe_master_vcov <- sandwich::vcovCL(fe_master, cluster = ~ participant_id, type = "HC1")
+fe_master_ct <- lmtest::coeftest(fe_master, vcov. = fe_master_vcov)
+fe_effect_master <- unname(fe_master_ct["high_tempo", "Estimate"])
+fe_p_master <- unname(fe_master_ct["high_tempo", "Pr(>|t|)"])
+
+t_bench_master <- t.test(outcome_tte ~ high_tempo, data = bench_master)
+bench_effect_master <- bench_master[high_tempo == 1L, mean(outcome_tte)] - bench_master[high_tempo == 0L, mean(outcome_tte)]
+bench_ci_master <- unname(t_bench_master$conf.int)
+
+set.seed(241)
+ri_dist_master <- replicate(
+  10000L,
+  mean(paired_master$diff_high_minus_low * sample(c(-1, 1), nrow(paired_master), replace = TRUE))
+)
+ri_p_master <- mean(abs(ri_dist_master) >= abs(paired_effect_master))
+
+main_results_tab <- data.table(
+  statistic = c(
+    "Paired analytic participants",
+    "Mean low-tempo TTE",
+    "Mean high-tempo TTE",
+    "Paired effect (high - low)",
+    "Paired 95% CI",
+    "Paired p-value",
+    "FE treatment estimate",
+    "FE p-value",
+    "RI two-sided p-value"
+  ),
+  value = c(
+    as.character(nrow(paired_master)),
+    sprintf("%.2f", mean(paired_master$low_tempo_tte)),
+    sprintf("%.2f", mean(paired_master$high_tempo_tte)),
+    sprintf("%.2f", paired_effect_master),
+    sprintf("[%.2f, %.2f]", paired_ci_master[1], paired_ci_master[2]),
+    sprintf("%.4f", t_paired_master$p.value),
+    sprintf("%.2f", fe_effect_master),
+    sprintf("%.4f", fe_p_master),
+    sprintf("%.4f", ri_p_master)
+  )
+)
+
+kable(main_results_tab, caption = "Compact main-results summary")
+```
+
+```{r fig-effect-comparison, fig.height=3.8}
+effect_compare <- data.table(
+  analysis = c("Primary crossover", "First-period benchmark"),
+  estimate = c(paired_effect_master, bench_effect_master),
+  conf_low = c(paired_ci_master[1], bench_ci_master[1]),
+  conf_high = c(paired_ci_master[2], bench_ci_master[2])
+)
+effect_compare[, analysis := factor(analysis, levels = analysis)]
+
+ggplot(effect_compare, aes(x = analysis, y = estimate, ymin = conf_low, ymax = conf_high)) +
+  geom_hline(yintercept = 0, linetype = "dashed", color = "gray40") +
+  geom_pointrange(color = "#3182bd", linewidth = 0.55, size = 0.75) +
+  labs(
+    title = "Treatment-effect comparison by design",
+    subtitle = "Both estimates are shown in seconds: high tempo minus low tempo",
+    x = NULL,
+    y = "Estimated effect (seconds)"
+  ) +
+  theme_minimal(base_size = 12) +
+  theme(panel.grid.minor = element_blank())
+```
+
+## Precision And Design-Efficiency Comparison
+
+Once both the crossover and benchmark estimates are on the page, the precision comparison shows why the crossover design is more efficient for this question.
+
+```{r section-05, results='asis'}
+include_section("05_precision_power_comparison.Rmd")
+```
+
+## Exploratory Mechanisms And Heterogeneity
+
+The next section keeps the mechanism-related outcomes and subgroup patterns clearly downstream of the primary estimate. These are exploratory checks rather than headline findings.
+
+```{r section-06, results='asis'}
+include_section("06_secondary_outcomes_and_hte.Rmd")
+```
+
+## Design-Based Inference Check
+
+The report closes the analytic sequence with randomization inference, which checks whether the observed paired effect is unusual under the sharp null implied by the randomization mechanism.
+
+```{r section-07, results='asis'}
+include_section("07_randomization_inference.Rmd")
+```
+
