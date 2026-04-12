@@ -1,0 +1,74 @@
+column_name,code_value,value_label
+post_comments_present_s1,0,empty or missing
+post_comments_present_s1,1,non-empty text (not exported)
+post_comments_present_s2,0,empty or missing
+post_comments_present_s2,1,non-empty text (not exported)
+post_form_quality_s1,1,form_failed_stopped
+post_form_quality_s1,2,Maintained proper form throughout
+post_form_quality_s1,3,maintained_proper_form
+post_form_quality_s1,4,mostly_good_minor_breaks
+post_form_quality_s2,1,form_failed_stopped
+post_form_quality_s2,2,Maintained proper form throughout
+post_form_quality_s2,3,maintained_proper_form
+post_form_quality_s2,4,mostly_good_minor_breaks
+post_headphones_s1,0,no
+post_headphones_s1,1,yes
+post_headphones_s2,0,no
+post_headphones_s2,1,yes
+post_plank_pause_detail_present_s1,0,empty or missing
+post_plank_pause_detail_present_s1,1,non-empty text (not exported)
+post_plank_pause_detail_present_s2,0,empty or missing
+post_plank_pause_detail_present_s2,1,non-empty text (not exported)
+post_plank_pause_s1,0,no
+post_plank_pause_s1,1,yes
+post_plank_pause_s2,0,no
+post_plank_pause_s2,1,yes
+post_volume_clear_s1,0,no
+post_volume_clear_s1,1,yes
+post_volume_clear_s1,2,somewhat
+post_volume_clear_s2,0,no
+post_volume_clear_s2,1,yes
+post_volume_clear_s2,2,somewhat
+pre_activity_level_s1,1,no_rarely
+pre_activity_level_s1,2,occasionally
+pre_activity_level_s1,3,Occasionally (1–2 times per week)
+pre_activity_level_s1,4,yes_regular
+pre_activity_type_s1,1,anaerobic weight training
+pre_activity_type_s1,2,"Biceps, triceps, pectorales, hombros, espalda, y piernas"
+pre_activity_type_s1,3,Caminar
+pre_activity_type_s1,4,cardio
+pre_activity_type_s1,5,"Cardio, fútbol"
+pre_activity_type_s1,6,"Correr, barra, paralelas"
+pre_activity_type_s1,7,"Daily 30 minutes of weightlifting,
+Occasionally a short, light to moderate cardio session"
+pre_activity_type_s1,8,Ejercicios de fuerza en casa
+pre_activity_type_s1,9,Entrenamiento de fútbol
+pre_activity_type_s1,10,entrenamiento variado de varias aptitudes fisicas para la materia de educacion fisica
+pre_activity_type_s1,11,Funcional
+pre_activity_type_s1,12,Futbol
+pre_activity_type_s1,13,Futbol 1 vez por semana
+pre_activity_type_s1,14,"Jogging, pushups, light weights"
+pre_activity_type_s1,15,"Lagree, Boxeo, cycling, yoga, gym"
+pre_activity_type_s1,16,Pilates barre
+pre_activity_type_s1,17,"pilates, jogging, weight lifting"
+pre_activity_type_s1,18,"run, yoga"
+pre_activity_type_s1,19,"Running, lifting weights"
+pre_activity_type_s1,20,"Running, weight training"
+pre_activity_type_s1,21,Soccer
+pre_activity_type_s1,22,Soccer practice
+pre_activity_type_s1,23,"Stair master, body weight exercises,10 minute YouTube exercises that may use free weights. I’ll use dumbbells"
+pre_activity_type_s1,24,Strength training
+pre_activity_type_s1,25,Volleyball
+pre_activity_type_s1,26,Volleyball once a week
+pre_activity_type_s1,27,"Volleyball, tennis"
+pre_activity_type_s1,28,Walking
+pre_activity_type_s1,29,"walking, running, badminton"
+pre_activity_type_s1,30,"Walking,running"
+pre_activity_type_s1,31,"Weights, light cardio"
+pre_activity_type_s1,32,Workout with trainer
+pre_activity_type_s1,33,Yoga
+pre_activity_type_s1,34,"Yoga, weight lifting"
+pre_plank_frequency_s1,1,no_rarely
+pre_plank_frequency_s1,2,occasionally
+pre_plank_frequency_s1,3,Occasionally (1–2 times per week)
+pre_plank_frequency_s1,4,yes_regular

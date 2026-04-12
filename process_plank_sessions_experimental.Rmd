@@ -1,0 +1,496 @@
+---
+title: "Plank study sessions: experimental wide data pipeline"
+subtitle: "From raw export to `w241_experiment_wide.csv` and codebook"
+author: "W241 Plank Study"
+date: "`r Sys.Date()`"
+output:
+  html_document:
+    toc: true
+    toc_depth: 3
+    number_sections: true
+---
+
+```{r setup, include=FALSE}
+library(knitr)
+knitr::opts_chunk$set(
+  echo = TRUE,
+  message = TRUE,
+  warning = TRUE,
+  collapse = TRUE
+)
+```
+
+## Purpose and outputs
+
+This document **documents and runs** the transformation from the app export **`W241 Plank Study Data - sessions.csv`** (long format: one row per participant-session) into:
+
+1. **`w241_experiment_wide.csv`** — one row per `participant_id`, analysis-ready integers for survey fields, no email.
+2. **`w241_experiment_codebook.csv`** — maps integer codes to labels for columns that are coded (survey and process items).
+
+Design choices (high level):
+
+- **Music labels:** raw `trance` / `pop` are renamed to **`high_tempo`** and **`low_tempo`** for clarity in analysis files.
+- **Completion:** **`completed_both`** is `1` if both sessions exist after deduplication, **`0` if only one session**. Partial completers are **kept** in the wide file (not dropped).
+- **Time:** Raw submission timestamps are used **only** to compute **`elapsed_sessions_hours`** between session 1 and session 2 (UTC). They are **not** written to the wide CSV (privacy and simplicity).
+- **Survey JSON:** Parsed to **integer** columns; yes/no \(\rightarrow\) 0/1; `volume_clear` adds **somewhat = 2**; free-text fields become **0/1 presence** columns (text itself is not exported).
+
+Run the whole document with **Knit** (or `rmarkdown::render()`) to regenerate the CSVs. Input/output paths are built from **`knitr::current_input()`** so **`W241 Plank Study Data - sessions.csv`** is read from the same folder as this Rmd, even when the process cwd is elsewhere (no reliance on the Knit working directory).
+
+---
+
+## Libraries and file paths
+
+```{r libraries}
+library(data.table)
+library(jsonlite)
+# knitr loaded in setup
+
+.rmd_dir <- {
+  fn <- tryCatch(knitr::current_input(), error = function(e) "")
+  if (is.null(fn) || !nzchar(fn)) {
+    getwd()
+  } else {
+    dirname(normalizePath(fn, winslash = "/"))
+  }
+}
+SRC <- file.path(.rmd_dir, "W241 Plank Study Data - sessions.csv")
+OUT_WIDE <- file.path(.rmd_dir, "w241_experiment_wide.csv")
+OUT_CODEBOOK <- file.path(.rmd_dir, "w241_experiment_codebook.csv")
+
+AUDIO_MAP <- c(trance = "high_tempo", pop = "low_tempo")
+
+YN_FIELDS <- c("headphones", "plank_pause")
+VOLUME_FIELD <- "volume_clear"
+TEXT_FIELDS <- c("comments", "plank_pause_detail")
+NUMERIC_FIELDS <- c(
+  "energy_pre_plank", "motivation_pre_plank", "music_liking",
+  "rpe", "music_effect", "music_effect_overall",
+  "instructions_ease", "overall_experience"
+)
+```
+
+**`AUDIO_MAP`:** maps the values stored in the export to analysis labels. Any other `audio_track` value causes an explicit error so bad data are not silently relabeled.
+
+**Field lists** drive how each JSON key is encoded (boolean, ordinal volume, numeric Likert, text presence, or string categorical).
+
+---
+
+## Helper functions: JSON parsing
+
+Exports from spreadsheets often embed JSON with **doubled double-quotes** (`""` inside the field) instead of backslash-escaped quotes. `jsonlite::fromJSON` expects standard JSON, so we **replace `""` with `"`** before parsing. Malformed or empty strings return `NULL` and become missing values downstream.
+
+```{r fn-parse}
+parse_obj <- function(txt) {
+  if (is.na(txt) || !nzchar(trimws(as.character(txt)))) return(NULL)
+  txt <- gsub('""', '"', txt, fixed = TRUE)
+  out <- tryCatch(
+    fromJSON(txt, simplifyVector = TRUE),
+    error = function(e) NULL
+  )
+  if (is.null(out) || length(out) == 0L) return(NULL)
+  if (!is.list(out)) return(NULL)
+  out
+}
+```
+
+---
+
+## Helper functions: encoding rules
+
+### Yes / no and volume
+
+`headphones` and `plank_pause` are coded **0 = no**, **1 = yes** (case-insensitive; common variants like `true` / `false` accepted). **`volume_clear`** is **0 = no**, **1 = yes**, **2 = somewhat** (a third level that appears in the forms).
+
+```{r fn-yn-volume}
+norm_yn <- function(x) {
+  if (is.null(x) || (length(x) == 1L && is.na(x))) return(NA_integer_)
+  v <- tolower(trimws(as.character(x[[1L]])))
+  if (!nzchar(v)) return(NA_integer_)
+  if (v %in% c("yes", "y", "true", "1")) return(1L)
+  if (v %in% c("no", "n", "false", "0")) return(0L)
+  NA_integer_
+}
+
+norm_volume <- function(x) {
+  if (is.null(x) || (length(x) == 1L && is.na(x))) return(NA_integer_)
+  v <- tolower(trimws(as.character(x[[1L]])))
+  if (!nzchar(v)) return(NA_integer_)
+  if (v == "yes") return(1L)
+  if (v == "no") return(0L)
+  if (v == "somewhat") return(2L)
+  NA_integer_
+}
+```
+
+### Numeric Likert fields
+
+Listed keys are coerced to **integers** (rounded) for scales such as RPE and pre-task motivation.
+
+```{r fn-numeric}
+as_int_num <- function(x) {
+  if (is.null(x) || (length(x) == 1L && is.na(x))) return(NA_integer_)
+  z <- suppressWarnings(as.integer(round(as.numeric(x[[1L]]))))
+  if (length(z) != 1L || is.na(z)) NA_integer_ else z
+}
+
+text_present <- function(x) {
+  if (is.null(x)) return(NA_integer_)
+  s <- trimws(as.character(x))
+  if (length(s) != 1L) return(NA_integer_)
+  if (!nzchar(s) || s == "NA") return(0L)
+  1L
+}
+```
+
+### Categorical strings and codebook accumulation
+
+Any JSON key **not** in the boolean, volume, numeric, or text lists is treated as a **categorical string**. Distinct strings are collected into a global catalog per key (sorted alphabetically), assigned integer codes `1, 2, …`, and described in the **codebook** so labels are recoverable.
+
+```{r fn-catalog-encode}
+catalog <- new.env(parent = emptyenv())
+codebook_rows <- list()
+
+add_codebook <- function(variable, code, label) {
+  codebook_rows[[length(codebook_rows) + 1L]] <<- data.table(
+    column_name = variable,
+    code_value = code,
+    value_label = label
+  )
+}
+
+encode_scalar <- function(key, val, colname) {
+  if (key %in% TEXT_FIELDS) {
+    p <- text_present(val)
+    return(list(col = paste0(colname, "_present"), val = p))
+  }
+  if (key %in% YN_FIELDS) {
+    return(list(col = colname, val = norm_yn(val)))
+  }
+  if (identical(key, VOLUME_FIELD)) {
+    return(list(col = colname, val = norm_volume(val)))
+  }
+  if (key %in% NUMERIC_FIELDS) {
+    return(list(col = colname, val = as_int_num(val)))
+  }
+  if (is.null(val) || (length(val) == 1L && is.na(val))) {
+    return(list(col = colname, val = NA_integer_))
+  }
+  lab <- trimws(as.character(val[[1L]]))
+  if (!nzchar(lab)) return(list(col = colname, val = NA_integer_))
+
+  ck <- paste0("cat__", key)
+  if (!exists(ck, envir = catalog, inherits = FALSE)) {
+    assign(ck, character(), envir = catalog)
+  }
+  lev <- get(ck, envir = catalog)
+  if (!lab %in% lev) {
+    lev <- sort(unique(c(lev, lab)))
+    assign(ck, lev, envir = catalog)
+  }
+  lev <- get(ck, envir = catalog)
+  code <- match(lab, lev)
+  list(col = colname, val = as.integer(code))
+}
+```
+
+### Flattening pre/post JSON per session
+
+Each session contributes **`pre_*_s1`** / **`post_*_s1`** (or **`_s2`**) columns. Text fields (`comments`, `plank_pause_detail`) become **`…_present_s1`** style columns with values 0/1 only.
+
+```{r fn-flatten}
+flatten_json_block <- function(obj, prefix, session_num) {
+  if (is.null(obj)) return(list())
+  sfx <- paste0("_s", session_num)
+  out <- list()
+  for (key in names(obj)) {
+    val <- obj[[key]]
+    base_col <- paste0(prefix, "_", key, sfx)
+    if (key %in% TEXT_FIELDS) {
+      enc <- encode_scalar(key, val, paste0(prefix, "_", key))
+      nm <- paste0(enc$col, sfx)
+      out[[nm]] <- enc$val
+      next
+    }
+    enc <- encode_scalar(key, val, base_col)
+    out[[enc$col]] <- enc$val
+  }
+  out
+}
+```
+
+---
+
+## First pass: discover all categorical levels
+
+Before assigning final integer codes, we scan **every row** of the deduplicated long table and every parsed pre/post object so that **all** string levels for each categorical key are known. That keeps codes stable when we encode row by row (no surprise new level mid-file).
+
+```{r fn-build-catalog}
+build_catalogs_pass <- function(dt) {
+  for (i in seq_len(nrow(dt))) {
+    pre <- parse_obj(dt$pre_task_answers[i])
+    post <- parse_obj(dt$post_task_answers[i])
+    for (obj in list(pre, post)) {
+      if (is.null(obj)) next
+      for (key in names(obj)) {
+        if (key %in% c(YN_FIELDS, VOLUME_FIELD, NUMERIC_FIELDS, TEXT_FIELDS)) next
+        val <- obj[[key]]
+        if (is.null(val)) next
+        lab <- trimws(as.character(val[[1L]]))
+        if (!nzchar(lab) || is.na(lab)) next
+        ck <- paste0("cat__", key)
+        if (!exists(ck, envir = catalog, inherits = FALSE)) assign(ck, character(), envir = catalog)
+        cur <- get(ck, envir = catalog)
+        if (!lab %in% cur) assign(ck, sort(unique(c(cur, lab))), envir = catalog)
+      }
+    }
+  }
+}
+
+register_cat_codebooks_for_session <- function(keys, prefix, session_num) {
+  sfx <- paste0("_s", session_num)
+  for (key in keys) {
+    if (key %in% c(YN_FIELDS, VOLUME_FIELD, NUMERIC_FIELDS, TEXT_FIELDS)) next
+    ck <- paste0("cat__", key)
+    if (!exists(ck, envir = catalog, inherits = FALSE)) next
+    lev <- get(ck, envir = catalog)
+    colnm <- paste0(prefix, "_", key, sfx)
+    for (i in seq_along(lev)) {
+      add_codebook(colnm, i, lev[i])
+    }
+  }
+}
+```
+
+---
+
+## Load long data, remove PII, map audio, deduplicate
+
+**Steps:**
+
+1. Read CSV; require core column names.
+2. Drop **`email`** and **`contact_sheet_url`** so they never appear in outputs.
+3. Normalize and map **`audio_track`** via `AUDIO_MAP`; stop if unknown values appear.
+4. Parse **`submitted_at`** as UTC (ISO format with `Z`); fallback parser if the first attempt yields all `NA`.
+5. Sort by participant, session, time; for each (**`participant_id`**, **`session_num`**) keep the **last** row (latest submission) to resolve duplicate submissions.
+
+```{r load-clean}
+dt <- fread(SRC)
+stopifnot(all(c(
+  "participant_id", "session_num", "audio_track",
+  "plank_duration_sec", "pre_task_answers", "post_task_answers", "submitted_at"
+) %in% names(dt)))
+
+if ("email" %in% names(dt)) dt[, email := NULL]
+if ("contact_sheet_url" %in% names(dt)) dt[, contact_sheet_url := NULL]
+
+dt[, audio_track := trimws(tolower(as.character(audio_track)))]
+bad_audio <- unique(dt[!audio_track %in% names(AUDIO_MAP), audio_track])
+if (length(bad_audio)) {
+  stop("Unknown audio_track value(s): ", paste(bad_audio, collapse = ", "))
+}
+dt[, audio_track := unname(AUDIO_MAP[audio_track])]
+
+dt[, submitted_at := as.POSIXct(submitted_at, tz = "UTC", format = "%Y-%m-%dT%H:%M:%OSZ")]
+if (all(is.na(dt$submitted_at))) {
+  dt[, submitted_at := as.POSIXct(submitted_at, tz = "UTC")]
+}
+
+setorder(dt, participant_id, session_num, submitted_at)
+dt <- dt[, .SD[.N], by = .(participant_id, session_num)]
+
+build_catalogs_pass(dt)
+```
+
+After this chunk, **`dt`** is the canonical long table used for the rest of the pipeline.
+
+---
+
+## Build session-specific tables and merge to wide
+
+For each session number (1 and 2), we:
+
+1. Collect which JSON keys appear in pre/post for that session slice (varies: session 1 pre often has demographics; session 2 pre is shorter).
+2. Register **codebook** rows for categoricals, yes/no, volume, and text-presence columns (some codebook rows may reference columns that do not appear in the final wide file if a key never occurs for that session; those are filtered out at export).
+3. For each participant row in that session, flatten pre/post JSON into a single wide row fragment and **`rbindlist`** with `fill = TRUE`.
+
+We then **outer-join** on **`participant_id`** so every participant appears once: those with only session 1 or only session 2 get **`NA`** for the other session’s columns.
+
+```{r process-session}
+process_session <- function(dt, sn) {
+  d <- dt[session_num == sn]
+  if (nrow(d) == 0L) {
+    return(data.table(participant_id = character()))
+  }
+
+  keys_pre <- unique(unlist(lapply(seq_len(nrow(d)), function(i) {
+    o <- parse_obj(d$pre_task_answers[i])
+    if (is.null(o)) character() else names(o)
+  })))
+  keys_post <- unique(unlist(lapply(seq_len(nrow(d)), function(i) {
+    o <- parse_obj(d$post_task_answers[i])
+    if (is.null(o)) character() else names(o)
+  })))
+  register_cat_codebooks_for_session(keys_pre, "pre", sn)
+  register_cat_codebooks_for_session(keys_post, "post", sn)
+
+  for (fld in YN_FIELDS) {
+    add_codebook(paste0("post_", fld, "_s", sn), 0L, "no")
+    add_codebook(paste0("post_", fld, "_s", sn), 1L, "yes")
+    add_codebook(paste0("pre_", fld, "_s", sn), 0L, "no")
+    add_codebook(paste0("pre_", fld, "_s", sn), 1L, "yes")
+  }
+  add_codebook(paste0("post_", VOLUME_FIELD, "_s", sn), 0L, "no")
+  add_codebook(paste0("post_", VOLUME_FIELD, "_s", sn), 1L, "yes")
+  add_codebook(paste0("post_", VOLUME_FIELD, "_s", sn), 2L, "somewhat")
+  add_codebook(paste0("pre_", VOLUME_FIELD, "_s", sn), 0L, "no")
+  add_codebook(paste0("pre_", VOLUME_FIELD, "_s", sn), 1L, "yes")
+  add_codebook(paste0("pre_", VOLUME_FIELD, "_s", sn), 2L, "somewhat")
+
+  for (fld in TEXT_FIELDS) {
+    add_codebook(paste0("pre_", fld, "_present_s", sn), 0L, "empty or missing")
+    add_codebook(paste0("pre_", fld, "_present_s", sn), 1L, "non-empty text (not exported)")
+    add_codebook(paste0("post_", fld, "_present_s", sn), 0L, "empty or missing")
+    add_codebook(paste0("post_", fld, "_present_s", sn), 1L, "non-empty text (not exported)")
+  }
+
+  rows <- vector("list", nrow(d))
+  for (i in seq_len(nrow(d))) {
+    pre <- parse_obj(d$pre_task_answers[i])
+    post <- parse_obj(d$post_task_answers[i])
+    L <- c(
+      flatten_json_block(pre, "pre", sn),
+      flatten_json_block(post, "post", sn)
+    )
+    rows[[i]] <- c(
+      list(
+        participant_id = d$participant_id[i],
+        plank_duration_sec = d$plank_duration_sec[i],
+        audio_track = d$audio_track[i],
+        submitted_at = d$submitted_at[i]
+      ),
+      L
+    )
+  }
+  rbindlist(lapply(rows, function(r) as.data.table(r)), fill = TRUE)
+}
+
+s1 <- process_session(dt, 1L)
+s2 <- process_session(dt, 2L)
+
+setnames(s1, c("plank_duration_sec", "audio_track", "submitted_at"),
+         c("plank_s1", "audio_s1", "submitted_at_s1"), skip_absent = TRUE)
+setnames(s2, c("plank_duration_sec", "audio_track", "submitted_at"),
+         c("plank_s2", "audio_s2", "submitted_at_s2"), skip_absent = TRUE)
+
+all_pid <- unique(c(s1$participant_id, s2$participant_id))
+wide <- data.table(participant_id = all_pid)
+wide <- merge(wide, s1, by = "participant_id", all.x = TRUE)
+wide <- merge(wide, s2, by = "participant_id", all.x = TRUE)
+```
+
+```{r verify-counts, echo=TRUE}
+# Row count = unique participants who have at least one row in session 1 or 2.
+# If you expected more rows than nrow(wide), check: (1) knit cwd / wrong CSV file
+# (fixed by root.dir in setup), (2) duplicate participant_id within a session
+# (dedup keeps latest submitted_at), (3) participants only in session_num outside {1,2}.
+pid_s12 <- unique(dt[session_num %in% c(1L, 2L), participant_id])
+pid_other <- setdiff(unique(dt$participant_id), pid_s12)
+if (length(pid_other)) {
+  message(
+    "Participants present in long data but with no session 1 or 2 row (excluded from wide): ",
+    length(pid_other)
+  )
+  print(pid_other)
+}
+stopifnot(uniqueN(s1$participant_id) == nrow(s1))
+stopifnot(uniqueN(s2$participant_id) == nrow(s2))
+stopifnot(nrow(wide) == length(pid_s12))
+stopifnot(setequal(wide$participant_id, pid_s12))
+```
+
+---
+
+## Derived design and outcome columns
+
+- **`completed_both`:** `1` if both **`plank_s1`** and **`plank_s2`** are non-missing.
+- **`crossover_order`:** From **`audio_s1`** — which condition was heard first (only defined when session 1 audio is present).
+- **`first_session_is_high_tempo`:** Binary indicator for randomization arm.
+- **`plank_high_tempo`** / **`plank_low_tempo`:** Plank duration under each condition, filled from whichever session had that **`audio_*`**.
+- **`diff_high_minus_low`:** Paired contrast when both conditions observed; otherwise may be `NA`.
+- **`elapsed_sessions_hours`:** `difftime(session 2, session 1, units = "hours")` in UTC, only when both timestamps exist and **`completed_both == 1`**; else **`NA`**.
+
+Finally, **`submitted_at_s1`** and **`submitted_at_s2`** are **removed** from the exported wide file so only **`elapsed_sessions_hours`** remains as timing information.
+
+```{r derive-wide}
+wide[, completed_both := as.integer(!is.na(plank_s1) & !is.na(plank_s2))]
+
+wide[, crossover_order := NA_character_]
+wide[audio_s1 == "high_tempo", crossover_order := "high_tempo_first"]
+wide[audio_s1 == "low_tempo", crossover_order := "low_tempo_first"]
+
+wide[, first_session_is_high_tempo := NA_integer_]
+wide[audio_s1 == "high_tempo", first_session_is_high_tempo := 1L]
+wide[audio_s1 == "low_tempo", first_session_is_high_tempo := 0L]
+
+wide[, plank_high_tempo := NA_real_]
+wide[, plank_low_tempo := NA_real_]
+wide[audio_s1 == "high_tempo", plank_high_tempo := plank_s1]
+wide[audio_s1 == "low_tempo", plank_low_tempo := plank_s1]
+wide[audio_s2 == "high_tempo", plank_high_tempo := plank_s2]
+wide[audio_s2 == "low_tempo", plank_low_tempo := plank_s2]
+
+wide[, diff_high_minus_low := plank_high_tempo - plank_low_tempo]
+
+wide[, elapsed_sessions_hours := NA_real_]
+ok_time <- !is.na(wide$submitted_at_s1) & !is.na(wide$submitted_at_s2) & (wide$completed_both == 1L)
+wide[ok_time, elapsed_sessions_hours := as.numeric(difftime(submitted_at_s2, submitted_at_s1, units = "hours"))]
+
+wide[, c("submitted_at_s1", "submitted_at_s2") := NULL]
+
+core <- c(
+  "participant_id", "completed_both", "crossover_order", "first_session_is_high_tempo",
+  "audio_s1", "audio_s2", "plank_s1", "plank_s2",
+  "plank_high_tempo", "plank_low_tempo", "diff_high_minus_low",
+  "elapsed_sessions_hours"
+)
+rest <- setdiff(names(wide), core)
+setcolorder(wide, c(core, sort(rest)))
+```
+
+---
+
+## Write outputs and codebook
+
+The codebook is assembled from **`codebook_rows`**, deduplicated, and **restricted to column names that actually appear in `wide`** so orphan mappings (e.g. pre-task keys that never occurred for a session) are not shipped.
+
+```{r write-files}
+fwrite(wide, OUT_WIDE)
+
+cb <- rbindlist(codebook_rows, fill = TRUE)
+if (nrow(cb)) {
+  cb <- unique(cb, by = c("column_name", "code_value"))
+  cb <- cb[column_name %in% names(wide)]
+  setorder(cb, column_name, code_value)
+}
+fwrite(cb, OUT_CODEBOOK)
+```
+
+---
+
+## Run summary
+
+```{r summary}
+message("Wrote ", nrow(wide), " rows to ", OUT_WIDE)
+message("Wrote ", nrow(cb), " codebook rows to ", OUT_CODEBOOK)
+
+kable(
+  wide[, .N, completed_both][order(completed_both)],
+  caption = "Participants by completed_both (1 = both sessions)"
+)
+```
+
+---
+
+## Maintenance note
+
+The standalone script **`process_plank_sessions_experimental.R`** mirrors this pipeline for non-interactive use (`Rscript ...`). If you change logic, update **either** the `.R` **or** this `.Rmd` and keep them in sync, or delete the `.R` and call `rmarkdown::render("process_plank_sessions_experimental.Rmd")` in automation instead.
