@@ -131,7 +131,9 @@ kable(secondary_fe, caption = "Exploratory fixed-effects treatment coefficients 
 
 ## HTE setup
 
-We estimate treatment interactions on the primary TTE outcome. Because subgroup results are exploratory, we report Bonferroni-adjusted p-values across the three planned subgroup tests.
+We estimate treatment interactions on the primary TTE outcome. The coefficient of interest in each model is the **treatment-by-subgroup interaction**, which asks whether the high-tempo effect changes across participants with different characteristics.
+
+Because subgroup results are exploratory, we report Bonferroni-adjusted p-values across the four planned subgroup tests.
 
 ```{r hte-setup}
 hte_data <- copy(long_primary)
@@ -140,7 +142,19 @@ hte_data[, period_factor := factor(period)]
 hte_data[, age_centered := participant_age - mean(participant_age, na.rm = TRUE)]
 hte_data[, male_indicator := as.integer(participant_gender == "male")]
 hte_data[, activity_level_ord := as.numeric(activity_level_baseline)]
+hte_data[, plank_familiarity_ord := fcase(
+  plank_frequency_baseline == 1L, 1L,
+  plank_frequency_baseline %in% c(2L, 3L), 2L,
+  plank_frequency_baseline == 4L, 3L,
+  default = NA_integer_
+)]
 ```
+
+The plank-familiarity proxy comes from the question **“Do you regularly perform planks?”**. To avoid treating two slightly different “occasionally” codes as distinct levels, we collapse the raw 4-level coding into a cleaner 3-step ordinal variable:
+
+- `1 = rarely or never`
+- `2 = occasionally`
+- `3 = regularly`
 
 ## HTE models
 
@@ -169,7 +183,8 @@ run_hte <- function(data, subgroup_var, label) {
 hte_results <- rbindlist(list(
   run_hte(hte_data, "age_centered", "Age"),
   run_hte(hte_data, "male_indicator", "Gender (male vs not male)"),
-  run_hte(hte_data, "activity_level_ord", "Activity level / fitness proxy")
+  run_hte(hte_data, "activity_level_ord", "Activity level / fitness proxy"),
+  run_hte(hte_data, "plank_familiarity_ord", "Plank familiarity")
 ))
 
 hte_results[, p_value_bonferroni := p.adjust(p_value, method = "bonferroni")]
@@ -188,7 +203,7 @@ kable(hte_results, caption = "Exploratory HTE interaction results with Bonferron
 ```{r verify}
 stopifnot(nrow(secondary_paired) == 3L)
 stopifnot(nrow(secondary_fe) == 3L)
-stopifnot(nrow(hte_results) == 3L)
+stopifnot(nrow(hte_results) == 4L)
 
 message("Secondary outcomes analyzed: ", paste(secondary_paired$outcome, collapse = ", "))
 message("HTE tests analyzed: ", paste(hte_results$subgroup, collapse = ", "))

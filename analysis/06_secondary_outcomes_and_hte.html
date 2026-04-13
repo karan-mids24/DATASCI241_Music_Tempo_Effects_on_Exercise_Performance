@@ -11,7 +11,7 @@
 
 <meta name="author" content="W241 Plank Study" />
 
-<meta name="date" content="2026-04-12" />
+<meta name="date" content="2026-04-13" />
 
 <title>Experiment analysis step 6: secondary outcomes and HTE</title>
 
@@ -355,7 +355,7 @@ outcomes and HTE</h1>
 <h3 class="subtitle">Exploratory secondary outcomes and heterogeneous
 treatment effects</h3>
 <h4 class="author">W241 Plank Study</h4>
-<h4 class="date">2026-04-12</h4>
+<h4 class="date">2026-04-13</h4>
 
 </div>
 
@@ -555,15 +555,34 @@ outcomes</caption>
 </div>
 <div id="hte-setup" class="section level2" number="0.5">
 <h2><span class="header-section-number">0.5</span> HTE setup</h2>
-<p>We estimate treatment interactions on the primary TTE outcome.
-Because subgroup results are exploratory, we report Bonferroni-adjusted
-p-values across the three planned subgroup tests.</p>
+<p>We estimate treatment interactions on the primary TTE outcome. The
+coefficient of interest in each model is the
+<strong>treatment-by-subgroup interaction</strong>, which asks whether
+the high-tempo effect changes across participants with different
+characteristics.</p>
+<p>Because subgroup results are exploratory, we report
+Bonferroni-adjusted p-values across the four planned subgroup tests.</p>
 <pre class="r"><code>hte_data &lt;- copy(long_primary)
 hte_data[, participant_id := factor(participant_id)]
 hte_data[, period_factor := factor(period)]
 hte_data[, age_centered := participant_age - mean(participant_age, na.rm = TRUE)]
 hte_data[, male_indicator := as.integer(participant_gender == &quot;male&quot;)]
-hte_data[, activity_level_ord := as.numeric(activity_level_baseline)]</code></pre>
+hte_data[, activity_level_ord := as.numeric(activity_level_baseline)]
+hte_data[, plank_familiarity_ord := fcase(
+  plank_frequency_baseline == 1L, 1L,
+  plank_frequency_baseline %in% c(2L, 3L), 2L,
+  plank_frequency_baseline == 4L, 3L,
+  default = NA_integer_
+)]</code></pre>
+<p>The plank-familiarity proxy comes from the question <strong>“Do you
+regularly perform planks?”</strong>. To avoid treating two slightly
+different “occasionally” codes as distinct levels, we collapse the raw
+4-level coding into a cleaner 3-step ordinal variable:</p>
+<ul>
+<li><code>1 = rarely or never</code></li>
+<li><code>2 = occasionally</code></li>
+<li><code>3 = regularly</code></li>
+</ul>
 </div>
 <div id="hte-models" class="section level2" number="0.6">
 <h2><span class="header-section-number">0.6</span> HTE models</h2>
@@ -591,7 +610,8 @@ hte_data[, activity_level_ord := as.numeric(activity_level_baseline)]</code></pr
 hte_results &lt;- rbindlist(list(
   run_hte(hte_data, &quot;age_centered&quot;, &quot;Age&quot;),
   run_hte(hte_data, &quot;male_indicator&quot;, &quot;Gender (male vs not male)&quot;),
-  run_hte(hte_data, &quot;activity_level_ord&quot;, &quot;Activity level / fitness proxy&quot;)
+  run_hte(hte_data, &quot;activity_level_ord&quot;, &quot;Activity level / fitness proxy&quot;),
+  run_hte(hte_data, &quot;plank_familiarity_ord&quot;, &quot;Plank familiarity&quot;)
 ))
 
 hte_results[, p_value_bonferroni := p.adjust(p_value, method = &quot;bonferroni&quot;)]
@@ -608,7 +628,7 @@ kable(hte_results, caption = &quot;Exploratory HTE interaction results with Bonf
 correction</caption>
 <colgroup>
 <col width="28%" />
-<col width="28%" />
+<col width="30%" />
 <col width="8%" />
 <col width="9%" />
 <col width="7%" />
@@ -649,6 +669,14 @@ correction</caption>
 <td align="right">0.8693</td>
 <td align="right">1</td>
 </tr>
+<tr class="even">
+<td align="left">Plank familiarity</td>
+<td align="left">high_tempo:plank_familiarity_ord</td>
+<td align="right">2.8831</td>
+<td align="right">9.7486</td>
+<td align="right">0.7692</td>
+<td align="right">1</td>
+</tr>
 </tbody>
 </table>
 </div>
@@ -656,12 +684,12 @@ correction</caption>
 <h2><span class="header-section-number">0.7</span> Verification</h2>
 <pre class="r"><code>stopifnot(nrow(secondary_paired) == 3L)
 stopifnot(nrow(secondary_fe) == 3L)
-stopifnot(nrow(hte_results) == 3L)
+stopifnot(nrow(hte_results) == 4L)
 
 message(&quot;Secondary outcomes analyzed: &quot;, paste(secondary_paired$outcome, collapse = &quot;, &quot;))
 ## Secondary outcomes analyzed: RPE, Motivation, Energy
 message(&quot;HTE tests analyzed: &quot;, paste(hte_results$subgroup, collapse = &quot;, &quot;))
-## HTE tests analyzed: Age, Gender (male vs not male), Activity level / fitness proxy</code></pre>
+## HTE tests analyzed: Age, Gender (male vs not male), Activity level / fitness proxy, Plank familiarity</code></pre>
 </div>
 
 
