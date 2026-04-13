@@ -622,48 +622,74 @@ hte_results[, `:=`(
   p_value_bonferroni = round(p_value_bonferroni, 4)
 )]
 
-kable(hte_results, caption = &quot;Exploratory HTE interaction results with Bonferroni correction&quot;)</code></pre>
+hte_display &lt;- copy(hte_results)[
+  ,
+  .(
+    subgroup = c(
+      &quot;Age&quot;,
+      &quot;Gender&quot;,
+      &quot;Activity level&quot;,
+      &quot;Plank familiarity&quot;
+    ),
+    interaction = c(
+      &quot;High tempo x age&quot;,
+      &quot;High tempo x gender&quot;,
+      &quot;High tempo x activity&quot;,
+      &quot;High tempo x familiarity&quot;
+    ),
+    estimate,
+    se = std_error,
+    p = p_value,
+    bonferroni_p = p_value_bonferroni
+  )
+]
+
+kable(
+  hte_display,
+  caption = &quot;Exploratory HTE interaction results with Bonferroni correction&quot;,
+  col.names = c(&quot;Subgroup&quot;, &quot;Interaction&quot;, &quot;Estimate&quot;, &quot;SE&quot;, &quot;p&quot;, &quot;Bonferroni p&quot;)
+)</code></pre>
 <table>
 <caption>Exploratory HTE interaction results with Bonferroni
 correction</caption>
 <colgroup>
-<col width="28%" />
-<col width="30%" />
+<col width="22%" />
+<col width="31%" />
+<col width="11%" />
+<col width="10%" />
 <col width="8%" />
-<col width="9%" />
-<col width="7%" />
-<col width="17%" />
+<col width="16%" />
 </colgroup>
 <thead>
 <tr class="header">
-<th align="left">subgroup</th>
-<th align="left">interaction_term</th>
-<th align="right">estimate</th>
-<th align="right">std_error</th>
-<th align="right">p_value</th>
-<th align="right">p_value_bonferroni</th>
+<th align="left">Subgroup</th>
+<th align="left">Interaction</th>
+<th align="right">Estimate</th>
+<th align="right">SE</th>
+<th align="right">p</th>
+<th align="right">Bonferroni p</th>
 </tr>
 </thead>
 <tbody>
 <tr class="odd">
 <td align="left">Age</td>
-<td align="left">high_tempo:age_centered</td>
+<td align="left">High tempo x age</td>
 <td align="right">0.2723</td>
 <td align="right">0.5090</td>
 <td align="right">0.5960</td>
 <td align="right">1</td>
 </tr>
 <tr class="even">
-<td align="left">Gender (male vs not male)</td>
-<td align="left">high_tempo:male_indicator</td>
+<td align="left">Gender</td>
+<td align="left">High tempo x gender</td>
 <td align="right">5.5517</td>
 <td align="right">13.5212</td>
 <td align="right">0.6839</td>
 <td align="right">1</td>
 </tr>
 <tr class="odd">
-<td align="left">Activity level / fitness proxy</td>
-<td align="left">high_tempo:activity_level_ord</td>
+<td align="left">Activity level</td>
+<td align="left">High tempo x activity</td>
 <td align="right">-0.8812</td>
 <td align="right">5.3176</td>
 <td align="right">0.8693</td>
@@ -671,7 +697,7 @@ correction</caption>
 </tr>
 <tr class="even">
 <td align="left">Plank familiarity</td>
-<td align="left">high_tempo:plank_familiarity_ord</td>
+<td align="left">High tempo x familiarity</td>
 <td align="right">2.8831</td>
 <td align="right">9.7486</td>
 <td align="right">0.7692</td>

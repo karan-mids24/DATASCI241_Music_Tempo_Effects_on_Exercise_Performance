@@ -195,7 +195,33 @@ hte_results[, `:=`(
   p_value_bonferroni = round(p_value_bonferroni, 4)
 )]
 
-kable(hte_results, caption = "Exploratory HTE interaction results with Bonferroni correction")
+hte_display <- copy(hte_results)[
+  ,
+  .(
+    subgroup = c(
+      "Age",
+      "Gender",
+      "Activity level",
+      "Plank familiarity"
+    ),
+    interaction = c(
+      "High tempo x age",
+      "High tempo x gender",
+      "High tempo x activity",
+      "High tempo x familiarity"
+    ),
+    estimate,
+    se = std_error,
+    p = p_value,
+    bonferroni_p = p_value_bonferroni
+  )
+]
+
+kable(
+  hte_display,
+  caption = "Exploratory HTE interaction results with Bonferroni correction",
+  col.names = c("Subgroup", "Interaction", "Estimate", "SE", "p", "Bonferroni p")
+)
 ```
 
 ## Verification
