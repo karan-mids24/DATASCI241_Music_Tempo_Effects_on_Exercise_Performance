@@ -1,0 +1,312 @@
+---
+title: "What Models Were Run In The Plank Experiment?"
+subtitle: "Narrative companion to the analysis pipeline"
+author: "W241 Plank Study"
+date: "`r Sys.Date()`"
+output:
+  html_document:
+    toc: true
+    toc_depth: 2
+    number_sections: true
+  pdf_document:
+    toc: true
+    toc_depth: 2
+    number_sections: true
+    latex_engine: pdflatex
+header-includes:
+  - \usepackage{longtable}
+  - \usepackage{booktabs}
+---
+
+```{r setup, include=FALSE}
+library(knitr)
+knitr::opts_chunk$set(
+  echo = FALSE,
+  message = FALSE,
+  warning = FALSE
+)
+
+.analysis_dir <- {
+  fn <- tryCatch(knitr::current_input(), error = function(e) "")
+  if (is.null(fn) || !nzchar(fn)) {
+    normalizePath(getwd(), winslash = "/")
+  } else {
+    dirname(normalizePath(fn, winslash = "/"))
+  }
+}
+source(file.path(.analysis_dir, "00_analysis_setup.R"))
+library(data.table)
+library(sandwich)
+library(lmtest)
+
+paired <- sanitize_dt_ascii(fread(derived_path("paired_analysis.csv")))
+long_dt <- sanitize_dt_ascii(fread(derived_path("long_repeated_measures.csv")))
+long_primary <- copy(long_dt[in_primary_analysis == 1L])
+bench <- copy(long_dt[in_first_period_benchmark == 1L & period == 1L])
+
+long_primary[, participant_id := factor(participant_id)]
+long_primary[, period_factor := factor(period)]
+long_primary[, crossover_order := factor(crossover_order)]
+
+# Primary crossover models
+t_paired <- t.test(paired$high_tempo_tte, paired$low_tempo_tte, paired = TRUE)
+fe_fit <- lm(outcome_tte ~ high_tempo + period_factor + participant_id, data = long_primary)
+fe_vcov <- sandwich::vcovCL(fe_fit, cluster = ~ participant_id, type = "HC1")
+fe_ct <- lmtest::coeftest(fe_fit, vcov. = fe_vcov)
+
+# Period and order diagnostics
+period_check <- t.test(
+  long_primary[period == 2, outcome_tte],
+  long_primary[period == 1, outcome_tte],
+  paired = FALSE
+)
+diag_fit <- lm(outcome_tte ~ period_factor * crossover_order, data = long_primary)
+diag_vcov <- sandwich::vcovCL(diag_fit, cluster = ~ participant_id, type = "HC1")
+diag_ct <- lmtest::coeftest(diag_fit, vcov. = diag_vcov)
+
+# Benchmark models
+bench[, high_tempo_first := high_tempo]
+bench[, participant_gender := factor(participant_gender)]
+t_bench <- t.test(outcome_tte ~ high_tempo_first, data = bench)
+adj_fit <- lm(outcome_tte ~ high_tempo_first + participant_age + participant_gender, data = bench)
+adj_sum <- summary(adj_fit)$coefficients
+
+# Precision comparison quantities
+n_pair <- nrow(paired)
+sd_diff <- sd(paired$diff_high_minus_low)
+se_pair <- sd_diff / sqrt(n_pair)
+n_high <- bench[high_tempo_first == 1L, .N]
+n_low <- bench[high_tempo_first == 0L, .N]
+sd_high <- bench[high_tempo_first == 1L, sd(outcome_tte)]
+sd_low <- bench[high_tempo_first == 0L, sd(outcome_tte)]
+se_parallel <- sqrt((sd_high^2 / n_high) + (sd_low^2 / n_low))
+
+# Secondary outcomes
+secondary_specs <- list(
+  list(label = "RPE", high = "rpe_high_tempo", low = "rpe_low_tempo", fe_var = "post_rpe"),
+  list(label = "Motivation", high = "motivation_high_tempo", low = "motivation_low_tempo", fe_var = "pre_motivation"),
+  list(label = "Energy", high = "energy_high_tempo", low = "energy_low_tempo", fe_var = "pre_energy")
+)
+
+secondary_paired <- rbindlist(lapply(secondary_specs, function(spec) {
+  tt <- t.test(paired[[spec$high]], paired[[spec$low]], paired = TRUE)
+  data.table(
+    outcome = spec$label,
+    estimate = mean(paired[[spec$high]] - paired[[spec$low]], na.rm = TRUE),
+    p_value = tt$p.value
+  )
+}))
+
+run_fe_secondary <- function(outcome_var, label) {
+  fit <- lm(
+    reformulate(c("high_tempo", "period_factor", "participant_id"), response = outcome_var),
+    data = long_primary
+  )
+  vc <- sandwich::vcovCL(fit, cluster = ~ participant_id, type = "HC1")
+  ct <- lmtest::coeftest(fit, vcov. = vc)
+  data.table(
+    outcome = label,
+    estimate = unname(ct["high_tempo", "Estimate"]),
+    p_value = unname(ct["high_tempo", "Pr(>|t|)"])
+  )
+}
+
+secondary_fe <- rbindlist(lapply(secondary_specs, function(spec) {
+  run_fe_secondary(spec$fe_var, spec$label)
+}))
+
+# HTE models
+hte_data <- copy(long_primary)
+hte_data[, age_centered := participant_age - mean(participant_age, na.rm = TRUE)]
+hte_data[, male_indicator := as.integer(participant_gender == "male")]
+hte_data[, activity_level_ord := as.numeric(activity_level_baseline)]
+hte_data[, plank_familiarity_ord := fcase(
+  plank_frequency_baseline == 1L, 1L,
+  plank_frequency_baseline %in% c(2L, 3L), 2L,
+  plank_frequency_baseline == 4L, 3L,
+  default = NA_integer_
+)]
+
+run_hte <- function(subgroup_var, label) {
+  fit <- lm(
+    reformulate(
+      c("high_tempo", subgroup_var, paste0("high_tempo:", subgroup_var), "period_factor", "participant_id"),
+      response = "outcome_tte"
+    ),
+    data = hte_data
+  )
+  vc <- sandwich::vcovCL(fit, cluster = ~ participant_id, type = "HC1")
+  ct <- lmtest::coeftest(fit, vcov. = vc)
+  term <- paste0("high_tempo:", subgroup_var)
+  data.table(
+    subgroup = label,
+    estimate = unname(ct[term, "Estimate"]),
+    p_value = unname(ct[term, "Pr(>|t|)"])
+  )
+}
+
+hte_results <- rbindlist(list(
+  run_hte("age_centered", "Age"),
+  run_hte("male_indicator", "Gender"),
+  run_hte("activity_level_ord", "Activity level"),
+  run_hte("plank_familiarity_ord", "Plank familiarity")
+))
+hte_results[, p_value_bonferroni := p.adjust(p_value, method = "bonferroni")]
+
+# Randomization inference
+set.seed(241)
+ri_dist <- replicate(
+  10000L,
+  mean(paired$diff_high_minus_low * sample(c(-1, 1), nrow(paired), replace = TRUE))
+)
+ri_two_sided_p <- mean(abs(ri_dist) >= abs(mean(paired$diff_high_minus_low)))
+
+model_index <- data.table(
+  section = c(
+    "Primary crossover",
+    "Primary crossover",
+    "Period/order diagnostics",
+    "Period/order diagnostics",
+    "First-period benchmark",
+    "First-period benchmark",
+    "Precision comparison",
+    "Secondary outcomes",
+    "Secondary outcomes",
+    "HTE",
+    "Randomization inference"
+  ),
+  model_name = c(
+    "Raw paired contrast",
+    "Fixed-effects crossover regression",
+    "Broad period check",
+    "Sequence diagnostic regression",
+    "Raw benchmark contrast",
+    "Precision-adjusted benchmark regression",
+    "Precision formulas",
+    "Secondary paired contrasts",
+    "Secondary fixed-effects models",
+    "Treatment-by-subgroup interaction models",
+    "Sign-flip randomization inference"
+  ),
+  sample = c(
+    "38 completed pairs",
+    "76 repeated-measures rows from 38 participants",
+    "76 repeated-measures rows from 38 participants",
+    "76 repeated-measures rows from 38 participants",
+    "46 Session 1 observations",
+    "46 Session 1 observations",
+    "38 pairs versus 46 benchmark observations",
+    "38 completed pairs",
+    "76 repeated-measures rows from 38 participants",
+    "76 repeated-measures rows from 38 participants",
+    "38 participant-level treatment differences"
+  ),
+  code = c(
+    "t.test(high_tempo_tte, low_tempo_tte, paired = TRUE)",
+    "lm(outcome_tte ~ high_tempo + period_factor + participant_id)",
+    "t.test(Session2, Session1)",
+    "lm(outcome_tte ~ period_factor * crossover_order)",
+    "t.test(outcome_tte ~ high_tempo_first)",
+    "lm(outcome_tte ~ high_tempo_first + participant_age + participant_gender)",
+    "SE, CI width, MDE, and required N formulas",
+    "paired t-tests for RPE, Motivation, Energy",
+    "lm(outcome ~ high_tempo + period_factor + participant_id)",
+    "lm(outcome_tte ~ high_tempo + subgroup + high_tempo:subgroup + period_factor + participant_id)",
+    "mean(diff * random sign), repeated 10,000 times"
+  ),
+  where = c(
+    "02_primary_crossover_analysis.Rmd",
+    "02_primary_crossover_analysis.Rmd",
+    "03_period_order_diagnostics.Rmd",
+    "03_period_order_diagnostics.Rmd",
+    "04_first_period_benchmark.Rmd",
+    "04_first_period_benchmark.Rmd",
+    "05_precision_power_comparison.Rmd",
+    "06_secondary_outcomes_and_hte.Rmd",
+    "06_secondary_outcomes_and_hte.Rmd",
+    "06_secondary_outcomes_and_hte.Rmd",
+    "07_randomization_inference.Rmd"
+  )
+)
+
+pretty_model_names <- c("Section", "Model", "Sample", "R code", "File")
+```
+
+## Purpose
+
+This companion report explains, in plain language, what statistical models were actually run in the experiment pipeline and why each one appears. The goal is not to replace the main report, but to make the analysis faster to audit. Instead of searching through multiple code chunks, you can use this document as a map from research question to model, sample, and exact R syntax.
+
+```{r latex-pagebreak-before-model-index, include=FALSE, results='asis'}
+if (knitr::is_latex_output()) cat("\\newpage\n")
+```
+
+## Model Index
+
+```{r model-index, results='asis'}
+if (knitr::is_latex_output()) {
+  cat("The table below maps each analysis block to the exact model, sample, and file used.\n\n")
+  cat("\\begingroup\\small\n")
+  cat(
+    knitr::kable(
+      model_index,
+      format = "latex",
+      longtable = TRUE,
+      booktabs = TRUE,
+      escape = TRUE,
+      caption = "Model inventory across the experiment pipeline",
+      col.names = pretty_model_names,
+      align = c("l", "p{3.2cm}", "p{3.3cm}", "p{4.7cm}", "p{2.7cm}")
+    ),
+    sep = "\n"
+  )
+  cat("\n\\endgroup\n")
+} else {
+  print(knitr::kable(
+    model_index,
+    caption = "Model inventory across the experiment pipeline",
+    col.names = pretty_model_names
+  ))
+}
+```
+
+## Primary Crossover Models
+
+The first model family answers the main causal question: did high-tempo music improve plank time to exhaustion within the same participant? The simplest version is the raw paired contrast, implemented as `t.test(high_tempo_tte, low_tempo_tte, paired = TRUE)`. This test uses the `r nrow(paired)` completed pairs and asks whether the average within-person difference is different from zero. It is the cleanest design-consistent summary because the treatment effect is measured inside each participant rather than across different people.
+
+The more formal version is the fixed-effects crossover regression, written as `lm(outcome_tte ~ high_tempo + period_factor + participant_id)` and estimated with participant-clustered standard errors. In words, this model regresses plank time on the high-tempo indicator, a Period 2 indicator, and a full set of participant fixed effects. The fixed effects absorb stable demographic and fitness differences, so the treatment effect is identified from within-person changes. In the current analysis, the high-tempo coefficient is `r sprintf("%.2f", unname(fe_ct["high_tempo", "Estimate"]))` seconds with clustered p = `r sprintf("%.4f", unname(fe_ct["high_tempo", "Pr(>|t|)"]))`, while the Period 2 coefficient is `r sprintf("%.2f", unname(fe_ct["period_factor2", "Estimate"]))` seconds with p = `r sprintf("%.4f", unname(fe_ct["period_factor2", "Pr(>|t|)"]))`.
+
+## Period And Order Diagnostics
+
+The diagnostic section runs two additional checks. The first is a broad period comparison, coded as a simple `t.test()` between all Session 2 outcomes and all Session 1 outcomes. This is not the primary causal model and should be read as a rough descriptive check. It asks whether second-session performance tended to be higher or lower overall, regardless of music condition. In this sample, the period-check p-value is `r sprintf("%.4f", period_check$p.value)`, so it does not provide strong evidence of a broad session effect.
+
+The second diagnostic is the sequence regression `lm(outcome_tte ~ period_factor * crossover_order)`, again with participant-clustered standard errors. This model is designed to detect whether period patterns differ by randomized order arm, which would be the kind of pattern one might worry about if carryover or order-specific adaptation were materially affecting the results. The most important term is the interaction between `period_factor` and `crossover_order`; its p-value here is `r sprintf("%.4f", unname(diag_ct["period_factor2:crossover_orderlow_tempo_first", "Pr(>|t|)"]))`. That makes this model a validity diagnostic rather than a headline treatment estimate.
+
+## First-Period Benchmark Models
+
+The benchmark section intentionally throws away Session 2 and keeps only Session 1. This creates a rough parallel-arm comparison that mimics what the study would have looked like if each person had only been observed under one treatment. The raw benchmark contrast is `t.test(outcome_tte ~ high_tempo_first)`. It is useful because it shows how much weaker the evidence becomes when the design can no longer compare participants to themselves. In the benchmark sample of `r nrow(bench)` observations, the p-value is `r sprintf("%.4f", t_bench$p.value)`.
+
+The adjusted benchmark regression is `lm(outcome_tte ~ high_tempo_first + participant_age + participant_gender)`. Here demographics become more relevant than they were in the crossover model because this is now a between-person comparison. The age and gender terms are included to recover some precision and to reduce imbalance risk in the smaller Session 1 sample. Even with that adjustment, the benchmark high-tempo coefficient is `r sprintf("%.2f", unname(adj_sum["high_tempo_first", "Estimate"]))` seconds with p = `r sprintf("%.4f", unname(adj_sum["high_tempo_first", "Pr(>|t|)"]))`, which is far less informative than the within-subject estimate.
+
+## Precision Comparison
+
+Step 5 is not a regression section. Instead, it is a design-comparison section that calculates standard errors, confidence-interval widths, minimum detectable effects, and the total sample size a parallel-arm design would have needed to match the crossover design. For the crossover design, the key standard error is based on the standard deviation of the within-person differences divided by the square root of `r n_pair` pairs. For the benchmark design, the standard error is based on the two Session 1 group variances. In this analysis, the crossover standard error is `r sprintf("%.2f", se_pair)` seconds and the benchmark standard error is `r sprintf("%.2f", se_parallel)` seconds. This section matters because it explains why the crossover estimate is much tighter even though the study is not large.
+
+## Secondary Outcome Models
+
+The secondary outcomes section repeats the primary logic for outcomes other than plank time. The first pass uses paired t-tests for RPE, motivation, and energy. These are direct within-person contrasts and are the secondary-outcome analogue of the primary paired treatment test. Among these, the clearest paired result is for `r secondary_paired[which.min(p_value), outcome]`, with an estimated difference of `r sprintf("%.3f", secondary_paired[which.min(p_value), estimate])` and p = `r sprintf("%.4f", secondary_paired[which.min(p_value), p_value])`.
+
+The section then re-estimates those secondary outcomes with fixed-effects regressions of the form `lm(outcome ~ high_tempo + period_factor + participant_id)` using participant-clustered standard errors. These models serve the same purpose as the primary FE model: they account for period and stable participant traits while focusing interpretation on the high-tempo coefficient. The strongest fixed-effects secondary result is again `r secondary_fe[which.min(p_value), outcome]`, with coefficient `r sprintf("%.3f", secondary_fe[which.min(p_value), estimate])` and p = `r sprintf("%.4f", secondary_fe[which.min(p_value), p_value])`.
+
+## HTE Interaction Models
+
+The heterogeneous treatment effect section asks a different question. Instead of estimating one average treatment effect for everyone, it asks whether the high-tempo effect changes systematically across subgroups. The general form is `lm(outcome_tte ~ high_tempo + subgroup + high_tempo:subgroup + period_factor + participant_id)`, estimated separately for age, gender, activity level, and plank familiarity, always with participant-clustered standard errors.
+
+In these models, the key coefficient is not the main `high_tempo` term but the interaction term `high_tempo:subgroup`. That interaction measures whether the treatment effect gets larger or smaller as the subgroup changes. None of the planned subgroup interactions was statistically persuasive after Bonferroni correction. The smallest raw interaction p-value is for `r hte_results[which.min(p_value), subgroup]`, with interaction estimate `r sprintf("%.3f", hte_results[which.min(p_value), estimate])`, raw p = `r sprintf("%.4f", hte_results[which.min(p_value), p_value])`, and Bonferroni-adjusted p = `r sprintf("%.4f", hte_results[which.min(p_value), p_value_bonferroni])`.
+
+## Randomization Inference
+
+The final inferential check is not a regression at all. It is a design-based randomization-inference exercise using random sign flips of the participant-level treatment differences. Under the sharp null of no treatment effect, each observed within-person difference could just as easily have had the opposite sign. The code repeatedly flips those signs at random and recalculates the mean difference 10,000 times, generating the null distribution implied by the crossover design itself. The resulting two-sided randomization-inference p-value is `r sprintf("%.4f", ri_two_sided_p)`, which closely tracks the paired and fixed-effects results.
+
+## Reading The Pipeline Efficiently
+
+If you want the fastest path through the codebase, the main treatment models live in `02_primary_crossover_analysis.Rmd`, the benchmark comparison lives in `04_first_period_benchmark.Rmd`, the secondary and HTE models live in `06_secondary_outcomes_and_hte.Rmd`, and the design-based inference check lives in `07_randomization_inference.Rmd`. The precision section in `05_precision_power_comparison.Rmd` is not a regression section, so it is better read as a design-efficiency appendix than as another model block.

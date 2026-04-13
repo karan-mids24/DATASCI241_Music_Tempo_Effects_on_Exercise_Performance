@@ -1,0 +1,154 @@
+---
+title: "Does High-Tempo Music Improve Plank Endurance?"
+subtitle: "A concise summary of the W241 plank experiment"
+author: "W241 Plank Study"
+date: "`r Sys.Date()`"
+output:
+  html_document:
+    toc: false
+  pdf_document:
+    toc: false
+    latex_engine: pdflatex
+---
+
+```{r setup, include=FALSE}
+library(knitr)
+knitr::opts_chunk$set(
+  echo = FALSE,
+  message = FALSE,
+  warning = FALSE
+)
+
+.analysis_dir <- {
+  fn <- tryCatch(knitr::current_input(), error = function(e) "")
+  if (is.null(fn) || !nzchar(fn)) {
+    normalizePath(getwd(), winslash = "/")
+  } else {
+    dirname(normalizePath(fn, winslash = "/"))
+  }
+}
+source(file.path(.analysis_dir, "00_analysis_setup.R"))
+library(data.table)
+library(sandwich)
+library(lmtest)
+
+flow <- fread(derived_path("participant_flow.csv"))
+paired <- fread(derived_path("paired_analysis.csv"))
+long_dt <- fread(derived_path("long_repeated_measures.csv"))
+long_primary <- copy(long_dt[in_primary_analysis == 1L])
+bench <- copy(long_dt[in_first_period_benchmark == 1L & period == 1L])
+
+long_primary[, participant_id := factor(participant_id)]
+long_primary[, period_factor := factor(period)]
+fe_fit <- lm(outcome_tte ~ high_tempo + period_factor + participant_id, data = long_primary)
+fe_vcov <- sandwich::vcovCL(fe_fit, cluster = ~ participant_id, type = "HC1")
+fe_ct <- lmtest::coeftest(fe_fit, vcov. = fe_vcov)
+
+t_paired <- t.test(paired$high_tempo_tte, paired$low_tempo_tte, paired = TRUE)
+t_bench <- t.test(outcome_tte ~ high_tempo, data = bench)
+bench[, high_tempo_first := high_tempo]
+bench[, participant_gender := factor(participant_gender)]
+adj_fit <- lm(outcome_tte ~ high_tempo_first + participant_age + participant_gender, data = bench)
+adj_sum <- summary(adj_fit)$coefficients
+
+set.seed(241)
+ri_dist <- replicate(
+  10000L,
+  mean(paired$diff_high_minus_low * sample(c(-1, 1), nrow(paired), replace = TRUE))
+)
+
+mean_high <- mean(paired$high_tempo_tte)
+mean_low <- mean(paired$low_tempo_tte)
+effect_mean <- mean(paired$diff_high_minus_low)
+effect_ci <- unname(t_paired$conf.int)
+paired_p <- t_paired$p.value
+fe_effect <- unname(fe_ct["high_tempo", "Estimate"])
+fe_p <- unname(fe_ct["high_tempo", "Pr(>|t|)"])
+period_effect <- unname(fe_ct["period_factor2", "Estimate"])
+period_p <- unname(fe_ct["period_factor2", "Pr(>|t|)"])
+benchmark_effect <- bench[high_tempo_first == 1L, mean(outcome_tte)] - bench[high_tempo_first == 0L, mean(outcome_tte)]
+benchmark_ci <- unname(t_bench$conf.int)
+benchmark_p <- t_bench$p.value
+benchmark_adj <- unname(adj_sum["high_tempo_first", "Estimate"])
+benchmark_adj_p <- unname(adj_sum["high_tempo_first", "Pr(>|t|)"])
+ri_two_sided <- mean(abs(ri_dist) >= abs(effect_mean))
+
+sd_diff <- sd(paired$diff_high_minus_low)
+se_pair <- sd_diff / sqrt(nrow(paired))
+ciw_pair <- 2 * qnorm(0.975) * se_pair
+mde_pair <- (qnorm(0.975) + qnorm(0.80)) * se_pair
+
+n_high <- bench[high_tempo_first == 1L, .N]
+n_low <- bench[high_tempo_first == 0L, .N]
+sd_high <- bench[high_tempo_first == 1L, sd(outcome_tte)]
+sd_low <- bench[high_tempo_first == 0L, sd(outcome_tte)]
+se_parallel <- sqrt((sd_high^2 / n_high) + (sd_low^2 / n_low))
+ciw_parallel <- 2 * qnorm(0.975) * se_parallel
+mde_parallel <- (qnorm(0.975) + qnorm(0.80)) * se_parallel
+sd_pooled <- sqrt((((n_high - 1) * sd_high^2) + ((n_low - 1) * sd_low^2)) / (n_high + n_low - 2))
+parallel_match_total_n <- 2 * ceiling((2 * sd_pooled^2) / (se_pair^2))
+
+sec_pairs <- list(
+  RPE = c("rpe_high_tempo", "rpe_low_tempo"),
+  Motivation = c("motivation_high_tempo", "motivation_low_tempo"),
+  Energy = c("energy_high_tempo", "energy_low_tempo")
+)
+sec_diff <- function(nm) mean(paired[[sec_pairs[[nm]][1]]] - paired[[sec_pairs[[nm]][2]]], na.rm = TRUE)
+sec_p <- function(nm) t.test(paired[[sec_pairs[[nm]][1]]], paired[[sec_pairs[[nm]][2]]], paired = TRUE)$p.value
+
+hte <- copy(long_primary)
+hte[, age_centered := participant_age - mean(participant_age, na.rm = TRUE)]
+hte[, male_indicator := as.integer(participant_gender == "male")]
+hte[, activity_level_ord := as.numeric(activity_level_baseline)]
+hte[, plank_familiarity_ord := fcase(
+  plank_frequency_baseline == 1L, 1L,
+  plank_frequency_baseline %in% c(2L, 3L), 2L,
+  plank_frequency_baseline == 4L, 3L,
+  default = NA_integer_
+)]
+run_hte <- function(var) {
+  dat <- copy(hte)
+  dat[["participant_id"]] <- factor(dat[["participant_id"]])
+  dat[["period_factor"]] <- factor(dat[["period"]])
+  fit <- lm(
+    reformulate(c("high_tempo", var, paste0("high_tempo:", var), "period_factor", "participant_id"), response = "outcome_tte"),
+    data = dat
+  )
+  vc <- sandwich::vcovCL(fit, cluster = ~ participant_id, type = "HC1")
+  ct <- lmtest::coeftest(fit, vcov. = vc)
+  ct[paste0("high_tempo:", var), "Pr(>|t|)"]
+}
+hte_ps <- c(run_hte("age_centered"), run_hte("male_indicator"), run_hte("activity_level_ord"), run_hte("plank_familiarity_ord"))
+hte_ps_adj <- p.adjust(hte_ps, method = "bonferroni")
+```
+
+## Introduction
+
+This experiment examined whether high-tempo music improves plank time to exhaustion relative to low-tempo music. The question is causal rather than merely descriptive, because people who prefer fast music may differ systematically from people who prefer slower music in fitness, motivation, and exercise habits. A randomized crossover design offers a strong way to isolate the treatment effect. Each participant completed the plank task twice, once under each music condition, with randomized order and a washout period between sessions. That design makes each participant their own control and sharply reduces the influence of stable between-person differences.
+
+Demographic variables such as age and gender remain useful for describing the sample, checking external validity, and exploring subgroup heterogeneity, but they are not central to identification in the primary crossover analysis. The reason is that each participant is compared to themselves rather than to other participants. Since characteristics like age, gender, body type, and baseline fitness are effectively fixed across the two sessions, they are absorbed by the within-person design and by the participant fixed effects instead of acting as confounders in the main treatment estimate.
+
+The study began with `r nrow(flow)` registered participants, all of whom were assigned to an order arm. Of these, `r flow[, sum(period1_observed)]` completed Session 1 and `r flow[, sum(completed_both_observed)]` completed both sessions. After excluding one participant with an impossible plank time above 600 seconds and one participant who violated the minimum washout requirement, the primary analytic sample contained `r flow[, sum(in_primary_analysis)]` completed pairs. This corresponds to a completed-both rate of `r sprintf("%.1f", 100 * flow[, sum(completed_both_observed)] / nrow(flow))` percent and a protocol-valid primary sample of `r nrow(paired)` participants. The benchmark parallel-arm comparison used `r flow[, sum(in_first_period_benchmark)]` Session 1 observations.
+
+## Primary Findings
+
+The primary crossover result provides clear evidence that high-tempo music improved performance. In the protocol-valid paired sample, the mean plank time under low tempo was `r sprintf("%.2f", mean_low)` seconds, while the mean under high tempo was `r sprintf("%.2f", mean_high)` seconds. The mean within-person effect was therefore `r sprintf("%.2f", effect_mean)` seconds in favor of high tempo, with a 95 percent confidence interval from `r sprintf("%.2f", effect_ci[1])` to `r sprintf("%.2f", effect_ci[2])`. The paired t-test yielded p = `r sprintf("%.4f", paired_p)`, which supports a statistically meaningful difference between the two conditions.
+
+The fixed-effects crossover regression tells the same story in a more formal way. This model uses the repeated-measures structure of the experiment, so each participant contributes one observation from Session 1 and one observation from Session 2. The participant fixed effects absorb all stable person-level differences, such as baseline strength, fitness, or natural endurance, so the treatment effect is identified from within-person changes across the two sessions. The model also includes a Period 2 indicator, which equals 1 for a participant's second session and 0 for the first. Its purpose is to test whether, regardless of music condition, outcomes tended to differ systematically in the second session. That matters because participants could perform better the second time due to practice or familiarity, or worse due to fatigue, boredom, or incomplete recovery. In this model, the estimated treatment effect of high tempo was `r sprintf("%.2f", fe_effect)` seconds with clustered p = `r sprintf("%.4f", fe_p)`, indicating that the positive treatment effect remains statistically meaningful even after accounting for period and participant fixed effects. The Period 2 coefficient was `r sprintf("%.2f", period_effect)` seconds with p = `r sprintf("%.4f", period_p)`, which suggests that second-session outcomes were slightly higher on average, but not by enough to conclude that there was a meaningful general session-order effect in this sample. Taken together, the paired contrast and the fixed-effects model point to the same substantive conclusion: high-tempo music increased plank endurance by roughly fourteen seconds on average.
+
+This conclusion is reinforced by the design-based randomization inference analysis. Under the sharp null, random sign-flips of the participant-level treatment differences produced a two-sided randomization-inference p-value of `r sprintf("%.4f", ri_two_sided)`. That result is very close to the model-based paired inference and supports the claim that the main finding is not an artifact of a particular parametric specification.
+
+## Why The Crossover Design Mattered
+
+The benchmark comparison shows why the crossover design was the right choice. Using only Session 1 to emulate a parallel-arm experiment, the raw benchmark contrast was `r sprintf("%.2f", benchmark_effect)` seconds, with a 95 percent confidence interval from `r sprintf("%.2f", benchmark_ci[1])` to `r sprintf("%.2f", benchmark_ci[2])` and p = `r sprintf("%.4f", benchmark_p)`. The precision-adjusted benchmark regression was similarly uninformative, with an estimated treatment effect of `r sprintf("%.2f", benchmark_adj)` seconds and p = `r sprintf("%.4f", benchmark_adj_p)`. In other words, once the study is forced into a between-person Session 1 comparison, the treatment signal becomes much weaker and far more uncertain.
+
+The precision comparison quantifies that difference directly. In the crossover design, the standard error of the treatment effect was only `r sprintf("%.2f", se_pair)` seconds, the 95 percent confidence interval width was `r sprintf("%.2f", ciw_pair)` seconds, and the minimum detectable effect at 80 percent power was `r sprintf("%.2f", mde_pair)` seconds. In the first-period benchmark, the corresponding values were `r sprintf("%.2f", se_parallel)`, `r sprintf("%.2f", ciw_parallel)`, and `r sprintf("%.2f", mde_parallel)` seconds. The benchmark design was therefore almost three times less precise than the crossover design. Under the observed variance structure, a balanced parallel-arm experiment would have needed about `r parallel_match_total_n` total participants to match the precision achieved by the crossover analysis. That is the central methodological lesson of the study: the crossover design delivered far more information per participant than a comparable parallel design would have.
+
+## Secondary Findings, Heterogeneity, And Limitations
+
+Secondary outcomes were directionally informative but weaker than the primary endurance result. Motivation showed the clearest signal: the paired mean difference was `r sprintf("%.3f", sec_diff("Motivation"))` points with p = `r sprintf("%.4f", sec_p("Motivation"))`, suggesting that high-tempo music may have increased readiness to perform. RPE also moved upward under high tempo, with a paired difference of `r sprintf("%.3f", sec_diff("RPE"))` and p = `r sprintf("%.4f", sec_p("RPE"))`, though this result fell just short of conventional significance. Energy moved in the same positive direction, with a paired difference of `r sprintf("%.3f", sec_diff("Energy"))`, but the evidence there was clearly weaker. These outcomes are consistent with the possibility that high-tempo music works through arousal or engagement, but they should be treated as exploratory rather than definitive mechanism tests.
+
+The heterogeneous treatment effect analysis did not reveal convincing subgroup differences. Interaction models were estimated for age, gender, activity level, and plank familiarity. After Bonferroni correction, all adjusted p-values were effectively null (`r paste(sprintf('%.3f', hte_ps_adj), collapse = ', ')`). This does not prove the treatment effect is identical for all participants, but it does imply that the present sample does not support strong claims about differential effects by subgroup. More broadly, the study still has important limitations. The protocol was remote and partially self-administered, so timing and adherence were not monitored in person. Attrition reduced the completed-pair sample from the full registration pool, and the sample size was well suited to detect the realized treatment effect but not smaller subgroup or mechanism effects. The findings therefore travel best as evidence about short-term isometric plank endurance in this specific remote experimental setting.
+
+In summary, the experiment provides coherent evidence that high-tempo music improves plank time to exhaustion relative to low-tempo music. The effect is visible in the paired comparison, survives fixed-effects modeling with clustered standard errors, and is supported by randomization inference. The benchmark comparison and the realized precision analysis make clear that this conclusion depended heavily on the efficiency of the crossover design. Taken together, the results support the substantive claim that high-tempo music can enhance short-duration endurance performance, while also supporting the methodological claim that a crossover design was the right experimental choice for estimating that effect.
+
