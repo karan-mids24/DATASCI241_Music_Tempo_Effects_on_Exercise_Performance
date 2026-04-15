@@ -4,10 +4,11 @@ subtitle: "Design-based check for the primary crossover effect"
 author: "W241 Plank Study"
 date: "`r Sys.Date()`"
 output:
-  html_document:
+  pdf_document:
     toc: true
     toc_depth: 2
     number_sections: true
+    latex_engine: pdflatex
 ---
 
 ```{r setup, include=FALSE}
@@ -69,6 +70,38 @@ obs_tab[, value := round(value, 4)]
 kable(obs_tab, caption = "Observed statistic for randomization inference")
 ```
 
+## Bridge linear model
+
+The randomization-inference statistic is the same paired mean difference reported in the primary analysis. To make that link explicit, we first write the observed effect as the intercept from a one-sample linear model on the participant-level differences. This does not change the estimand; it only provides the conventional regression-style coefficient, standard error, and p-value before the design-based RI calculation.
+
+```{r ri-bridge-lm}
+bridge_fit <- lm(diff_high_minus_low ~ 1, data = paired)
+bridge_coef <- summary(bridge_fit)$coefficients["(Intercept)", ]
+bridge_ci <- unname(confint(bridge_fit)[1, ])
+
+bridge_tab <- data.table(
+  quantity = c(
+    "Intercept (mean paired effect)",
+    "Standard error",
+    "t statistic",
+    "Conventional two-sided p-value",
+    "95% CI lower",
+    "95% CI upper"
+  ),
+  value = c(
+    unname(bridge_coef["Estimate"]),
+    unname(bridge_coef["Std. Error"]),
+    unname(bridge_coef["t value"]),
+    unname(bridge_coef["Pr(>|t|)"]),
+    bridge_ci[1],
+    bridge_ci[2]
+  )
+)
+bridge_tab[, value := round(value, 4)]
+
+kable(bridge_tab, caption = "Bridge linear model for the paired estimand")
+```
+
 ## Randomization distribution
 
 ```{r ri}
@@ -128,8 +161,10 @@ ggplot(ri_plot, aes(x = statistic)) +
 stopifnot(length(ri_dist) == n_sims)
 stopifnot(ri_two_sided_p >= 0 && ri_two_sided_p <= 1)
 stopifnot(ri_one_sided_p >= 0 && ri_one_sided_p <= 1)
+stopifnot(all.equal(unname(coef(bridge_fit)[1]), observed_diff, tolerance = 1e-10))
 
 message("Observed paired mean difference: ", round(observed_diff, 3))
+message("Bridge linear-model p-value: ", round(unname(bridge_coef["Pr(>|t|)"]), 4))
 message("Two-sided RI p-value: ", round(ri_two_sided_p, 4))
 message("One-sided RI p-value: ", round(ri_one_sided_p, 4))
 ```

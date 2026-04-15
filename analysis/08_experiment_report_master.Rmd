@@ -108,7 +108,7 @@ include_section("01_analysis_populations.Rmd")
 
 ## Primary Crossover Estimate
 
-With the populations fixed, the next step is the primary within-subject treatment estimate. The emphasis here is the design-consistent sequence: paired descriptives first, then the paired mean difference, then the fixed-effects crossover model with a period adjustment.
+With the populations fixed, the next step is the primary within-subject treatment estimate. The emphasis here is the design-consistent sequence: paired descriptives first, then the paired mean difference, then a participant fixed-effects model without period adjustment, and finally the fixed-effects crossover model with a period adjustment.
 
 ```{r section-02, results='asis'}
 include_section("02_primary_crossover_analysis.Rmd")
@@ -145,6 +145,12 @@ paired_effect_master <- mean(paired_master$diff_high_minus_low)
 paired_ci_master <- unname(t_paired_master$conf.int)
 
 long_primary_master[["participant_id"]] <- factor(long_primary_master[["participant_id"]])
+fe_noperiod_master <- lm(outcome_tte ~ high_tempo + participant_id, data = long_primary_master)
+fe_noperiod_master_vcov <- sandwich::vcovCL(fe_noperiod_master, cluster = ~ participant_id, type = "HC1")
+fe_noperiod_master_ct <- lmtest::coeftest(fe_noperiod_master, vcov. = fe_noperiod_master_vcov)
+fe_noperiod_effect_master <- unname(fe_noperiod_master_ct["high_tempo", "Estimate"])
+fe_noperiod_p_master <- unname(fe_noperiod_master_ct["high_tempo", "Pr(>|t|)"])
+
 long_primary_master[["period_factor"]] <- factor(long_primary_master[["period"]])
 fe_master <- lm(outcome_tte ~ high_tempo + period_factor + participant_id, data = long_primary_master)
 fe_master_vcov <- sandwich::vcovCL(fe_master, cluster = ~ participant_id, type = "HC1")
@@ -171,8 +177,10 @@ main_results_tab <- data.table(
     "Paired effect (high - low)",
     "Paired 95% CI",
     "Paired p-value",
-    "FE treatment estimate",
-    "FE p-value",
+    "FE without-period estimate",
+    "FE without-period p-value",
+    "FE with-period estimate",
+    "FE with-period p-value",
     "RI two-sided p-value"
   ),
   value = c(
@@ -182,6 +190,8 @@ main_results_tab <- data.table(
     sprintf("%.2f", paired_effect_master),
     sprintf("[%.2f, %.2f]", paired_ci_master[1], paired_ci_master[2]),
     sprintf("%.4f", t_paired_master$p.value),
+    sprintf("%.2f", fe_noperiod_effect_master),
+    sprintf("%.4f", fe_noperiod_p_master),
     sprintf("%.2f", fe_effect_master),
     sprintf("%.4f", fe_p_master),
     sprintf("%.4f", ri_p_master)

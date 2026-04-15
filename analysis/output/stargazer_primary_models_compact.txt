@@ -1,0 +1,20 @@
+
+Primary Crossover Linear Models
+===============================================================================================
+                                         Plank time to exhaustion (seconds)                    
+                                 FE no period                         FE with period           
+-----------------------------------------------------------------------------------------------
+High-tempo indicator               14.369**                              14.369**              
+                                    (6.680)                              (6.710)               
+                                                                                               
+Period 2 indicator                                                        3.844                
+                                                                         (6.710)               
+                                                                                               
+-----------------------------------------------------------------------------------------------
+Observations                          76                                    76                 
+R2                                   0.920                                0.922                
+===============================================================================================
+Note:                *p<0.1; **p<0.05; ***p<0.01                                               
+                     Primary analysis uses the randomized crossover design.                    
+                     Model 1 omits the period adjustment; Model 2 adds the Period 2 indicator. 
+                     Fixed-effects standard errors are clustered at the participant level.     

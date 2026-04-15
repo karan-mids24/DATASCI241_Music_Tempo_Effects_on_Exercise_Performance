@@ -1,0 +1,21 @@
+
+Model Family P: Primary Crossover Regressions
+==============================================================================================================================================
+                                                                Plank time to exhaustion (seconds)                                            
+                                           P2: FE no period                                            P3: FE with period                     
+----------------------------------------------------------------------------------------------------------------------------------------------
+High-tempo indicator                           14.369**                                                     14.369**                          
+                                               (6.680)                                                      (6.710)                           
+                                                                                                                                              
+Period 2 indicator                                                                                           3.844                            
+                                                                                                            (6.710)                           
+                                                                                                                                              
+----------------------------------------------------------------------------------------------------------------------------------------------
+Observations                                      76                                                           76                             
+R2                                              0.920                                                        0.922                            
+Adjusted R2                                     0.838                                                        0.837                            
+==============================================================================================================================================
+Note:                *p<0.1; **p<0.05; ***p<0.01                                                                                              
+                     This table covers the regression members of the primary family; P1 is a paired t-test and is reported outside stargazer. 
+                     Both models use the repeated-measures crossover sample.                                                                  
+                     Standard errors are clustered at the participant level.                                                                  

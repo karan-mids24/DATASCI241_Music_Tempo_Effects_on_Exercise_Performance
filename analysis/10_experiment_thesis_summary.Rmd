@@ -4,8 +4,6 @@ subtitle: "A concise summary of the W241 plank experiment"
 author: "W241 Plank Study"
 date: "`r Sys.Date()`"
 output:
-  html_document:
-    toc: false
   pdf_document:
     toc: false
     latex_engine: pdflatex
@@ -39,6 +37,9 @@ long_primary <- copy(long_dt[in_primary_analysis == 1L])
 bench <- copy(long_dt[in_first_period_benchmark == 1L & period == 1L])
 
 long_primary[, participant_id := factor(participant_id)]
+fe_noperiod_fit <- lm(outcome_tte ~ high_tempo + participant_id, data = long_primary)
+fe_noperiod_vcov <- sandwich::vcovCL(fe_noperiod_fit, cluster = ~ participant_id, type = "HC1")
+fe_noperiod_ct <- lmtest::coeftest(fe_noperiod_fit, vcov. = fe_noperiod_vcov)
 long_primary[, period_factor := factor(period)]
 fe_fit <- lm(outcome_tte ~ high_tempo + period_factor + participant_id, data = long_primary)
 fe_vcov <- sandwich::vcovCL(fe_fit, cluster = ~ participant_id, type = "HC1")
@@ -62,6 +63,8 @@ mean_low <- mean(paired$low_tempo_tte)
 effect_mean <- mean(paired$diff_high_minus_low)
 effect_ci <- unname(t_paired$conf.int)
 paired_p <- t_paired$p.value
+fe_noperiod_effect <- unname(fe_noperiod_ct["high_tempo", "Estimate"])
+fe_noperiod_p <- unname(fe_noperiod_ct["high_tempo", "Pr(>|t|)"])
 fe_effect <- unname(fe_ct["high_tempo", "Estimate"])
 fe_p <- unname(fe_ct["high_tempo", "Pr(>|t|)"])
 period_effect <- unname(fe_ct["period_factor2", "Estimate"])
@@ -134,7 +137,9 @@ The study began with `r nrow(flow)` registered participants, all of whom were as
 
 The primary crossover result provides clear evidence that high-tempo music improved performance. In the protocol-valid paired sample, the mean plank time under low tempo was `r sprintf("%.2f", mean_low)` seconds, while the mean under high tempo was `r sprintf("%.2f", mean_high)` seconds. The mean within-person effect was therefore `r sprintf("%.2f", effect_mean)` seconds in favor of high tempo, with a 95 percent confidence interval from `r sprintf("%.2f", effect_ci[1])` to `r sprintf("%.2f", effect_ci[2])`. The paired t-test yielded p = `r sprintf("%.4f", paired_p)`, which supports a statistically meaningful difference between the two conditions.
 
-The fixed-effects crossover regression tells the same story in a more formal way. This model uses the repeated-measures structure of the experiment, so each participant contributes one observation from Session 1 and one observation from Session 2. The participant fixed effects absorb all stable person-level differences, such as baseline strength, fitness, or natural endurance, so the treatment effect is identified from within-person changes across the two sessions. The model also includes a Period 2 indicator, which equals 1 for a participant's second session and 0 for the first. Its purpose is to test whether, regardless of music condition, outcomes tended to differ systematically in the second session. That matters because participants could perform better the second time due to practice or familiarity, or worse due to fatigue, boredom, or incomplete recovery. In this model, the estimated treatment effect of high tempo was `r sprintf("%.2f", fe_effect)` seconds with clustered p = `r sprintf("%.4f", fe_p)`, indicating that the positive treatment effect remains statistically meaningful even after accounting for period and participant fixed effects. The Period 2 coefficient was `r sprintf("%.2f", period_effect)` seconds with p = `r sprintf("%.4f", period_p)`, which suggests that second-session outcomes were slightly higher on average, but not by enough to conclude that there was a meaningful general session-order effect in this sample. Taken together, the paired contrast and the fixed-effects model point to the same substantive conclusion: high-tempo music increased plank endurance by roughly fourteen seconds on average.
+The same treatment signal appears when the analysis is rewritten as a participant fixed-effects linear model. In the simpler repeated-measures specification without a period control, the estimated high-tempo effect was `r sprintf("%.2f", fe_noperiod_effect)` seconds with clustered p = `r sprintf("%.4f", fe_noperiod_p)`. That version is useful as a baseline because it keeps the linear-model framework while still relying entirely on within-person contrasts.
+
+The fixed-effects crossover regression with a Period 2 control tells the same story in a more formal way. This model uses the repeated-measures structure of the experiment, so each participant contributes one observation from Session 1 and one observation from Session 2. The participant fixed effects absorb all stable person-level differences, such as baseline strength, fitness, or natural endurance, so the treatment effect is identified from within-person changes across the two sessions. The model also includes a Period 2 indicator, which equals 1 for a participant's second session and 0 for the first. Its purpose is to test whether, regardless of music condition, outcomes tended to differ systematically in the second session. That matters because participants could perform better the second time due to practice or familiarity, or worse due to fatigue, boredom, or incomplete recovery. In this model, the estimated treatment effect of high tempo was `r sprintf("%.2f", fe_effect)` seconds with clustered p = `r sprintf("%.4f", fe_p)`, indicating that the positive treatment effect remains statistically meaningful even after accounting for period and participant fixed effects. The Period 2 coefficient was `r sprintf("%.2f", period_effect)` seconds with p = `r sprintf("%.4f", period_p)`, which suggests that second-session outcomes were slightly higher on average, but not by enough to conclude that there was a meaningful general session-order effect in this sample. Taken together, the paired contrast, the simpler fixed-effects model, and the period-adjusted fixed-effects model point to the same substantive conclusion: high-tempo music increased plank endurance by roughly fourteen seconds on average.
 
 This conclusion is reinforced by the design-based randomization inference analysis. Under the sharp null, random sign-flips of the participant-level treatment differences produced a two-sided randomization-inference p-value of `r sprintf("%.4f", ri_two_sided)`. That result is very close to the model-based paired inference and supports the claim that the main finding is not an artifact of a particular parametric specification.
 

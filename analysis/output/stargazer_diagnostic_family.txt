@@ -1,0 +1,23 @@
+
+Model Family D: Period and Order Diagnostic Regression
+=============================================================================================================================================================
+                                                                           Plank time to exhaustion (seconds)                                                
+-------------------------------------------------------------------------------------------------------------------------------------------------------------
+Period 2 indicator                                                                      -10.525*                                                             
+                                                                                        (5.826)                                                              
+                                                                                                                                                             
+Low-tempo-first order                                                                    4.665                                                               
+                                                                                        (15.454)                                                             
+                                                                                                                                                             
+Period 2 x low-tempo-first                                                             28.739***                                                             
+                                                                                        (9.489)                                                              
+                                                                                                                                                             
+-------------------------------------------------------------------------------------------------------------------------------------------------------------
+Observations                                                                               76                                                                
+R2                                                                                       0.057                                                               
+Adjusted R2                                                                              0.018                                                               
+=============================================================================================================================================================
+Note:                      *p<0.1; **p<0.05; ***p<0.01                                                                                                       
+                           This table covers the regression member of the diagnostic family; D1 is the broad period t-test and is reported outside stargazer.
+                           The interaction term is the key validity check.                                                                                   
+                           Standard errors are clustered at the participant level.                                                                           

@@ -4,10 +4,11 @@ subtitle: "Participant flow, attrition/compliance, and analysis-ready exports"
 author: "W241 Plank Study"
 date: "`r Sys.Date()`"
 output:
-  html_document:
+  pdf_document:
     toc: true
     toc_depth: 2
     number_sections: true
+    latex_engine: pdflatex
 ---
 
 ```{r setup, include=FALSE}
@@ -228,6 +229,122 @@ attrition_by_order <- flow[
 kable(attrition_by_order, caption = "Table B. Attrition by randomized order")
 ```
 
+## Attrition-bias check
+
+This check asks whether retention through both observed sessions differed meaningfully by randomized order arm or baseline demographics among randomized participants. It is intentionally light-touch: the goal is to surface obvious selection patterns without overfitting a small attrition model.
+
+```{r attrition-bias}
+rand_flow <- copy(flow[randomized == 1L])
+rand_flow[, retained_completed_both := as.integer(completed_both_observed == 1L)]
+rand_flow[, baseline_age := coalesce_num(participant_age, age)]
+rand_flow[, baseline_gender := tolower(trimws(coalesce_chr(participant_gender, gender)))]
+rand_flow[, male_indicator := as.integer(baseline_gender == "male")]
+
+safe_fisher_p <- function(x, y) {
+  tmp <- data.table(x = x, y = y)[!is.na(x) & !is.na(y)]
+  if (nrow(tmp) == 0L || uniqueN(tmp$x) < 2L || uniqueN(tmp$y) < 2L) {
+    return(NA_real_)
+  }
+  fisher.test(table(tmp$x, tmp$y))$p.value
+}
+
+safe_t_p <- function(value, group) {
+  tmp <- data.table(value = value, group = group)[!is.na(value) & !is.na(group)]
+  if (nrow(tmp) == 0L || uniqueN(tmp$group) < 2L) {
+    return(NA_real_)
+  }
+  t.test(value ~ group, data = tmp)$p.value
+}
+
+retention_demo <- rand_flow[
+  ,
+  .(
+    n = .N,
+    mean_age = mean(baseline_age, na.rm = TRUE),
+    sd_age = sd(baseline_age, na.rm = TRUE),
+    share_male = mean(male_indicator, na.rm = TRUE)
+  ),
+  by = retained_completed_both
+][order(-retained_completed_both)]
+
+retention_demo[, retained_group := fifelse(
+  retained_completed_both == 1L,
+  "Completed both sessions",
+  "Did not complete both"
+)]
+retention_demo[, `:=`(
+  mean_age = round(mean_age, 2),
+  sd_age = round(sd_age, 2),
+  share_male = round(100 * share_male, 1)
+)]
+retention_demo <- retention_demo[, .(retained_group, n, mean_age, sd_age, share_male)]
+
+attrition_bias_by_order <- rand_flow[
+  ,
+  .(
+    randomized_participants = .N,
+    retained_completed_both = sum(retained_completed_both),
+    not_retained = sum(1L - retained_completed_both),
+    retention_rate_pct = 100 * mean(retained_completed_both)
+  ),
+  by = assigned_order
+][order(assigned_order)]
+attrition_bias_by_order[, retention_rate_pct := round(retention_rate_pct, 1)]
+
+gender_test_dt <- copy(rand_flow)[baseline_gender %in% c("male", "female")]
+gender_test_dt[, retained_group := fifelse(
+  retained_completed_both == 1L,
+  "Completed both sessions",
+  "Did not complete both"
+)]
+
+gender_counts <- gender_test_dt[
+  ,
+  .N,
+  by = .(baseline_gender, retained_group)
+]
+gender_matrix <- xtabs(N ~ baseline_gender + retained_group, data = gender_counts)
+
+gender_balance_tab <- data.table(
+  retained_group = colnames(gender_matrix),
+  male_n = as.integer(gender_matrix["male", ]),
+  female_n = as.integer(gender_matrix["female", ]),
+  male_share_pct = round(100 * gender_matrix["male", ] / colSums(gender_matrix), 1)
+)
+
+expected_gender_counts <- suppressWarnings(chisq.test(gender_matrix, correct = FALSE)$expected)
+gender_p_value <- if (any(expected_gender_counts < 5)) {
+  fisher.test(gender_matrix)$p.value
+} else {
+  prop.test(
+    x = gender_matrix["male", ],
+    n = colSums(gender_matrix),
+    correct = FALSE
+  )$p.value
+}
+
+attrition_bias_tests <- data.table(
+  comparison = c(
+    "Retention by randomized order",
+    "Baseline age by retention status",
+    "Baseline gender by retention status"
+  ),
+  p_value = c(
+    safe_fisher_p(rand_flow$assigned_order, rand_flow$retained_completed_both),
+    safe_t_p(rand_flow$baseline_age, rand_flow$retained_completed_both),
+    gender_p_value
+  )
+)
+attrition_bias_tests[, p_value := round(p_value, 4)]
+
+kable(retention_demo, caption = "Table C. Baseline demographics by retention status")
+kable(attrition_bias_by_order, caption = "Table D. Retention by randomized order")
+kable(gender_balance_tab, caption = "Table E. Baseline gender counts by retention status")
+kable(attrition_bias_tests, caption = "Table F. Attrition-bias diagnostic p-values")
+```
+
+These diagnostics should be read as descriptive checks rather than proof that attrition was ignorable. They focus on retention through Session 2 among randomized participants and cannot rule out selection on unobserved factors. They are also conceptually separate from the protocol-based primary-analysis exclusions, which apply only after a participant completed both observed sessions.
+
 ```{r table-compliance}
 compliance_table <- data.table(
   issue = c(
@@ -244,7 +361,7 @@ compliance_table <- data.table(
   )
 )
 
-kable(compliance_table, caption = "Table C. Compliance and exclusion reasons")
+kable(compliance_table, caption = "Table G. Compliance and exclusion reasons")
 ```
 
 ## Build paired analytic dataset

@@ -1,0 +1,450 @@
+---
+title: "Final Experimental Report"
+subtitle: "Beat the Burn: The Effect of Music Tempo on Isometric Plank Endurance"
+author: "By: Ryan Castillo, Thomas Dobbs, Karan Patel, Carlos Schrupp"
+date: "MIDS 241, 2026-04-15"
+output:
+  pdf_document:
+    toc: true
+    toc_depth: 2
+    number_sections: false
+    latex_engine: pdflatex
+---
+
+```{r setup, include=FALSE}
+options(knitr.duplicate.label = "allow")
+
+library(knitr)
+knitr::opts_chunk$set(
+  echo = FALSE,
+  message = FALSE,
+  warning = FALSE,
+  collapse = TRUE,
+  fig.width = 7,
+  fig.height = 4.4,
+  dpi = 150
+)
+
+.analysis_dir <- {
+  fn <- tryCatch(knitr::current_input(), error = function(e) "")
+  if (is.null(fn) || !nzchar(fn)) {
+    normalizePath(getwd(), winslash = "/")
+  } else {
+    dirname(normalizePath(fn, winslash = "/"))
+  }
+}
+source(file.path(.analysis_dir, "00_analysis_setup.R"))
+library(data.table)
+library(ggplot2)
+library(sandwich)
+library(lmtest)
+
+strip_sections <- function(lines, heading_titles) {
+  for (title in heading_titles) {
+    start <- grep(paste0("^## ", title, "$"), lines)[1L]
+    if (is.na(start)) next
+    next_heading <- grep("^## ", lines[(start + 1L):length(lines)])[1L]
+    if (is.na(next_heading)) {
+      lines <- lines[seq_len(start - 1L)]
+    } else {
+      end <- start + next_heading - 2L
+      lines <- lines[-seq.int(start, end)]
+    }
+  }
+  lines
+}
+
+strip_yaml_and_setup <- function(path, drop_sections = character()) {
+  lines <- readLines(path, warn = FALSE)
+
+  if (length(lines) >= 1L && trimws(lines[1L]) == "---") {
+    end_yaml <- which(trimws(lines[-1L]) == "---")[1L] + 1L
+    lines <- lines[(end_yaml + 1L):length(lines)]
+  }
+
+  setup_start <- grep("^```\\{r setup", lines)[1L]
+  if (!is.na(setup_start)) {
+    setup_end <- setup_start + which(lines[setup_start:length(lines)] == "```")[1L] - 1L
+    lines <- lines[-seq.int(setup_start, setup_end)]
+  }
+
+  purpose_start <- match("## Purpose", lines)
+  if (!is.na(purpose_start)) {
+    next_heading <- grep("^## ", lines[(purpose_start + 1L):length(lines)])[1L]
+    if (is.na(next_heading)) {
+      lines <- lines[seq_len(purpose_start - 1L)]
+    } else {
+      purpose_end <- purpose_start + next_heading - 1L
+      lines <- lines[-seq.int(purpose_start, purpose_end - 1L)]
+    }
+  }
+
+  heading_only_patterns <- c("^## Load ", "^## Verification$")
+  for (pat in heading_only_patterns) {
+    hit <- grep(pat, lines)
+    if (length(hit)) lines <- lines[-hit]
+  }
+
+  if (length(drop_sections)) {
+    lines <- strip_sections(lines, drop_sections)
+  }
+
+  lines
+}
+
+include_section <- function(filename, drop_sections = character()) {
+  body <- strip_yaml_and_setup(file.path(.analysis_dir, filename), drop_sections = drop_sections)
+  cat(knit_child(text = body, envir = environment(), quiet = TRUE), sep = "\n")
+}
+
+render_stargazer_table <- function(stem, caption = NULL) {
+  if (!is.null(caption) && nzchar(caption)) {
+    cat(caption, "\n\n")
+  }
+  if (knitr::is_latex_output()) {
+    path <- file.path(.analysis_dir, "output", paste0(stem, ".tex"))
+    lines <- readLines(path, warn = FALSE)
+    cat(paste(lines, collapse = "\n"))
+    cat("\n\n")
+  } else {
+    path <- file.path(.analysis_dir, "output", paste0(stem, ".txt"))
+    lines <- readLines(path, warn = FALSE)
+    cat("```text\n")
+    cat(paste(lines, collapse = "\n"))
+    cat("\n```\n\n")
+  }
+}
+
+flow <- sanitize_dt_ascii(fread(derived_path("participant_flow.csv")))
+paired <- sanitize_dt_ascii(fread(derived_path("paired_analysis.csv")))
+long_dt <- sanitize_dt_ascii(fread(derived_path("long_repeated_measures.csv")))
+
+long_primary <- copy(long_dt[in_primary_analysis == 1L])
+bench <- copy(long_dt[in_first_period_benchmark == 1L & period == 1L])
+
+long_primary[, participant_id := factor(participant_id)]
+fe_noperiod <- lm(outcome_tte ~ high_tempo + participant_id, data = long_primary)
+fe_noperiod_vcov <- sandwich::vcovCL(fe_noperiod, cluster = ~ participant_id, type = "HC1")
+fe_noperiod_ct <- lmtest::coeftest(fe_noperiod, vcov. = fe_noperiod_vcov)
+
+long_primary[, period_factor := factor(period)]
+fe_period <- lm(outcome_tte ~ high_tempo + period_factor + participant_id, data = long_primary)
+fe_period_vcov <- sandwich::vcovCL(fe_period, cluster = ~ participant_id, type = "HC1")
+fe_period_ct <- lmtest::coeftest(fe_period, vcov. = fe_period_vcov)
+
+t_paired <- t.test(paired$high_tempo_tte, paired$low_tempo_tte, paired = TRUE)
+effect_mean <- mean(paired$diff_high_minus_low)
+effect_ci <- unname(t_paired$conf.int)
+percent_improvement <- 100 * effect_mean / mean(paired$low_tempo_tte)
+
+bench_t <- t.test(outcome_tte ~ high_tempo, data = bench)
+bench_effect <- bench[high_tempo == 1L, mean(outcome_tte)] - bench[high_tempo == 0L, mean(outcome_tte)]
+bench_ci <- unname(bench_t$conf.int)
+
+sd_diff <- sd(paired$diff_high_minus_low)
+se_pair <- sd_diff / sqrt(nrow(paired))
+n_high <- bench[high_tempo == 1L, .N]
+n_low <- bench[high_tempo == 0L, .N]
+sd_high <- bench[high_tempo == 1L, sd(outcome_tte)]
+sd_low <- bench[high_tempo == 0L, sd(outcome_tte)]
+se_parallel <- sqrt((sd_high^2 / n_high) + (sd_low^2 / n_low))
+precision_ratio <- se_parallel / se_pair
+
+set.seed(241)
+ri_dist <- replicate(
+  10000L,
+  mean(paired$diff_high_minus_low * sample(c(-1, 1), nrow(paired), replace = TRUE))
+)
+ri_two_sided <- mean(abs(ri_dist) >= abs(effect_mean))
+
+sec_pairs <- list(
+  RPE = c("rpe_high_tempo", "rpe_low_tempo"),
+  Motivation = c("motivation_high_tempo", "motivation_low_tempo"),
+  Energy = c("energy_high_tempo", "energy_low_tempo")
+)
+sec_diff <- function(nm) mean(paired[[sec_pairs[[nm]][1]]] - paired[[sec_pairs[[nm]][2]]], na.rm = TRUE)
+sec_p <- function(nm) t.test(paired[[sec_pairs[[nm]][1]]], paired[[sec_pairs[[nm]][2]]], paired = TRUE)$p.value
+
+hte <- copy(long_primary)
+hte[, age_centered := participant_age - mean(participant_age, na.rm = TRUE)]
+hte[, male_indicator := as.integer(participant_gender == "male")]
+hte[, activity_level_ord := as.numeric(activity_level_baseline)]
+hte[, plank_familiarity_ord := fcase(
+  plank_frequency_baseline == 1L, 1L,
+  plank_frequency_baseline %in% c(2L, 3L), 2L,
+  plank_frequency_baseline == 4L, 3L,
+  default = NA_integer_
+)]
+run_hte_p <- function(var) {
+  dat <- copy(hte)
+  dat[["participant_id"]] <- factor(dat[["participant_id"]])
+  dat[["period_factor"]] <- factor(dat[["period"]])
+  fit <- lm(
+    reformulate(c("high_tempo", var, paste0("high_tempo:", var), "period_factor", "participant_id"),
+      response = "outcome_tte"),
+    data = dat
+  )
+  vc <- sandwich::vcovCL(fit, cluster = ~ participant_id, type = "HC1")
+  ct <- lmtest::coeftest(fit, vcov. = vc)
+  ct[paste0("high_tempo:", var), "Pr(>|t|)"]
+}
+hte_ps_adj <- p.adjust(c(
+  run_hte_p("age_centered"),
+  run_hte_p("male_indicator"),
+  run_hte_p("activity_level_ord"),
+  run_hte_p("plank_familiarity_ord")
+), method = "bonferroni")
+
+model_roadmap <- data.table(
+  family = c(
+    "P: Primary crossover",
+    "P: Primary crossover",
+    "P: Primary crossover",
+    "D: Diagnostics",
+    "D: Diagnostics",
+    "B: Benchmark",
+    "B: Benchmark",
+    "S: Secondary outcomes",
+    "S: Secondary outcomes",
+    "H: Heterogeneity",
+    "R: Randomization inference",
+    "R: Randomization inference"
+  ),
+  id = c("P1", "P2", "P3", "D1", "D2", "B1", "B2", "S1-S3", "S4-S6", "H1-H4", "R1", "R2"),
+  model = c(
+    "Raw paired contrast",
+    "Fixed-effects without period",
+    "Fixed-effects with period",
+    "Broad period comparison",
+    "Sequence diagnostic regression",
+    "First-period raw contrast",
+    "First-period adjusted regression",
+    "Paired secondary contrasts",
+    "Fixed-effects secondary models",
+    "Treatment-by-subgroup interaction models",
+    "Bridge linear model",
+    "Randomization inference"
+  ),
+  sample = c(
+    "38 completed pairs",
+    "76 repeated-measures rows",
+    "76 repeated-measures rows",
+    "76 repeated-measures rows",
+    "76 repeated-measures rows",
+    "46 Session 1 observations",
+    "46 Session 1 observations",
+    "38 completed pairs",
+    "76 repeated-measures rows",
+    "76 repeated-measures rows",
+    "38 participant-level differences",
+    "38 participant-level differences"
+  ),
+  purpose = c(
+    "Direct within-person treatment contrast",
+    "Linear-model bridge without period adjustment",
+    "Main regression specification with period control",
+    "Checks broad Session 2 drift",
+    "Checks whether period patterns differ by randomized order",
+    "Emulates a parallel-arm comparison using Session 1 only",
+    "Adds baseline adjustment to the Session 1 benchmark",
+    "Tests simple paired shifts in RPE, motivation, and energy",
+    "Re-estimates secondary outcomes in the FE framework",
+    "Tests whether treatment effects differ by pre-specified subgroup",
+    "Writes the paired estimand in regression form",
+    "Provides design-based sign-flip p-values under the sharp null"
+  )
+)
+```
+
+# I. Introduction
+
+This report studies the within-person causal effect of listening to high-tempo versus low-tempo instrumental EDM music on plank time-to-volitional-exhaustion (TTE), measured in seconds. The primary estimand is the average treatment effect inside the randomized crossover design: for each participant, we compare plank duration under the high-tempo condition to plank duration under the low-tempo condition, then average that difference across the retained analytic sample.
+
+An observational comparison would not answer that question cleanly. People who naturally prefer fast music may also differ systematically in baseline strength, training history, motivation, pain tolerance, or willingness to push through discomfort. Those selection effects would contaminate any simple comparison of high-tempo listeners to low-tempo listeners. The experiment was therefore designed to randomize treatment order and let each participant serve as their own control, sharply reducing stable between-person confounding.
+
+Our primary hypothesis was directional: high-tempo music would increase TTE relative to low-tempo music. Mechanistically, we expected that fast-paced auditory stimulation could raise arousal, improve readiness to perform, and encourage psychological dissociation from interoceptive fatigue cues. That mechanism story implies not only a longer plank hold, but also directional movement in secondary outcomes such as motivation, perceived energy, and exertion.
+
+# II. Experimental Details
+
+The treatment condition was defined as high-tempo instrumental EDM at or above 125 BPM, while the control condition was low-tempo instrumental EDM at or below 80 BPM. Participants received fixed listening links rather than choosing their own songs, were instructed to use headphones, and were asked to keep playback near a common reference volume of roughly 60 percent. The participant-facing app kept the labels neutral during the sessions, while the analysis pipeline mapped the underlying tracks into the high-tempo and low-tempo treatment definitions. This standardization kept the treatment as consistent as possible across participants in a remote setting.
+
+Data acquisition was conducted through a custom mobile-first web app rather than a survey-only workflow. Participants registered through the app, received direct session links, completed guided plank sessions with embedded audio and pre/post task questions, and had their responses written through a Google Apps Script backend into Google Sheets. The app was also built with bilingual English and Spanish participant flows, which made the study more accessible and helped include participants across different locales and countries rather than limiting the interface to a single language. The participant roster stored non-PII baseline metadata such as age, gender, locale, and planned session timing, while the session records captured assigned audio condition, plank duration, and survey responses. The app also offered an optional image-capture feature that, for participants who enabled it, generated a contact-sheet style image stream that was used for plank-form quality control and to help validate timing. The preprocessing pipeline then merged those records into a participant-level wide file and the canonical derived datasets used by the analysis reports.
+
+The pilot and design logic pointed in two directions at once. First, natural baseline variance in plank endurance is large enough that a between-subjects design would be noisy and inefficient. Second, repeated isometric effort creates obvious risks of fatigue, learning, and carryover across sessions. The final experiment therefore used a randomized crossover design in which Session 2 was scheduled within a 24 to 72 hour window after Session 1, while the final crossover analysis excluded cases where the realized elapsed time between recorded sessions was under 24 hours. That choice was intended to preserve the efficiency benefits of within-person comparison while reducing temporal spillovers from the first plank attempt into the second.
+
+# Model Roadmap
+
+The report uses several model families rather than one single flat list of models. That distinction matters because the later analyses are answering different questions, not just repeating the same treatment estimate. The roadmap below organizes the empirical strategy into primary treatment models, diagnostic models, benchmark models, exploratory secondary-outcome models, heterogeneity models, and design-based inference checks.
+
+```{r model-roadmap}
+kable(model_roadmap, caption = "Model roadmap for the final report")
+```
+
+Two conventions are useful for reading the rest of the report. First, not every model family is a regression family: `P1`, `D1`, `S1-S3`, and `R2` are not linear regressions and therefore are summarized through standard statistical tables rather than `stargazer` regression output. Second, the main causal conclusion should come from the primary crossover family `P1-P3`, while the other families either diagnose threats to validity, illustrate design efficiency, or explore mechanisms and subgroup patterns.
+
+# III. Participant Flow and Attrition
+
+The analysis begins with the full registered sample and only then narrows to the retained analytic populations. That ordering keeps attrition, missingness, and protocol exclusions visible before any treatment effects are interpreted.
+
+The key outputs in this section each answer a different design question. `Table A` and the participant-flow figure show the denominators that matter for interpretation: how many participants registered, how many produced Session 1 and Session 2 outcomes, and how the study moved from the full registration pool to the `r flow[, sum(in_primary_analysis)]`-pair primary analytic sample and the `r flow[, sum(in_first_period_benchmark)]`-observation first-period benchmark. `Table B` then isolates attrition by randomized order, while `Tables C` through `G` separate simple dropout from protocol-based exclusion. The purpose of this block is to show that the final sample was constructed transparently rather than selectively.
+
+```{r section-01, results='asis'}
+include_section(
+  "01_analysis_populations.Rmd",
+  drop_sections = c("Build paired analytic dataset", "Build long repeated-measures dataset", "Write derived outputs")
+)
+```
+
+Taken together, these outputs show a clear progression from `r nrow(flow)` registered participants to `r flow[, sum(completed_both_observed)]` completed-both observations and finally to `r flow[, sum(in_primary_analysis)]` protocol-valid pairs. The attrition-bias tables further suggest that retention through both sessions was not strongly associated with randomized order or the observed baseline demographics reported there, although those checks remain descriptive rather than definitive.
+
+# IV. Primary Crossover Estimate
+
+The core estimate comes from the crossover sample of `r nrow(paired)` protocol-valid completed pairs. In raw paired terms, mean TTE increased by `r sprintf("%.2f", effect_mean)` seconds under high tempo, which corresponds to a `r sprintf("%.1f", percent_improvement)` percent improvement relative to the low-tempo mean. To make the specification ladder transparent, the report shows the raw paired contrast, then a participant fixed-effects model without period adjustment, and finally the period-adjusted fixed-effects crossover regression with participant-clustered standard errors.
+
+This section reports the primary crossover family `P1-P3`. `P1` is the raw paired contrast, implemented as `t.test(high_tempo_tte, low_tempo_tte, paired = TRUE)`, and should be read as the simplest design-consistent estimate of the within-person average treatment effect. `P2` rewrites that same contrast inside a participant fixed-effects linear model without period adjustment, `lm(outcome_tte ~ high_tempo + participant_id)`, and `P3` is the fully specified fixed-effects crossover regression, `lm(outcome_tte ~ high_tempo + period_factor + participant_id)`, with a Period 2 control and participant-clustered standard errors. The goal of presenting all three is not to hunt for a preferred p-value, but to show whether the treatment signal survives increasingly structured specifications.
+
+This section is organized so that the tables and figures move from description to inference. The sample and descriptive tables establish the analytic denominator and the average times under each condition. The compact metrics table then compresses the main quantities of interest into one place. The spaghetti plot shows whether the treatment effect is broadly visible across individuals, the paired-difference histogram shows where the distribution of within-person improvements sits relative to zero, and the three model tables show how the treatment estimate behaves as the specification becomes more structured. The final comparison figure then places those three estimates on a common scale.
+
+```{r section-02, results='asis'}
+include_section("02_primary_crossover_analysis.Rmd")
+```
+
+```{r stargazer-primary, results='asis'}
+render_stargazer_table(
+  "stargazer_primary_family",
+  caption = "The `stargazer` summary below isolates the regression members of the primary family, `P2` and `P3`, so the reader can compare the fixed-effects specifications directly."
+)
+```
+
+The graphical story is consistent with the regression story: most of the within-person signal leans toward longer holds under high tempo, and the center of the paired-difference distribution lies to the right of zero. The three-model ladder then shows that the estimated treatment effect remains near `r sprintf("%.2f", effect_mean)` seconds across specifications, which is exactly the pattern one would hope to see if the result is design-driven rather than specification-driven.
+
+# V. Period and Order Diagnostics
+
+Because the protocol required two plank attempts per participant, it is important to check whether broad session-order effects disrupted interpretation. The diagnostics below test whether performance shifted systematically from Session 1 to Session 2 and whether those patterns differed by randomized sequence arm.
+
+This section reports the diagnostic family `D1-D2`. `D1` is the broad period comparison, implemented as `t.test(long_primary[period == 2, outcome_tte], long_primary[period == 1, outcome_tte], paired = FALSE)`, and asks whether Session 2 outcomes were generally higher or lower than Session 1 outcomes regardless of treatment. `D2` is the sequence diagnostic regression, `lm(outcome_tte ~ period_factor * crossover_order)`, and asks whether period patterns differed across the two randomized orders. These are not alternative treatment estimators; they are checks on whether carryover, learning, or fatigue appear large enough to complicate the primary interpretation.
+
+The tables and figures in this section are diagnostic rather than headline treatment results. The period summary table asks whether average outcomes in Session 2 look systematically higher or lower than outcomes in Session 1. The period-by-order table and the two figures then visualize whether the two randomized sequence arms followed notably different trajectories across periods. Finally, the broad period comparison and sequence regression translate those descriptive checks into formal diagnostics.
+
+```{r section-03, results='asis'}
+include_section("03_period_order_diagnostics.Rmd")
+```
+
+```{r stargazer-diagnostic, results='asis'}
+render_stargazer_table(
+  "stargazer_diagnostic_family",
+  caption = "The next `stargazer` output focuses on `D2`, the sequence diagnostic regression. It is included separately because the interaction term is the main formal check for order-specific period patterns."
+)
+```
+
+The main message is that broad Session 2 drift was modest, while the order-by-period outputs are best read as validity checks rather than alternative treatment estimates. In particular, the broad period comparison centers the overall Session 2 minus Session 1 difference near `r sprintf("%.2f", unname(fe_period_ct["period_factor2", "Estimate"]))` seconds, which is small relative to the treatment effect and not compelling on its own, even though the sequence diagnostics remain useful for showing how period patterns differed across the two randomized orders.
+
+# VI. First-Period Benchmark and Precision
+
+The first-period benchmark asks what the treatment effect would have looked like if the study had been analyzed as a conventional parallel-arm trial using one independent observation per participant. That benchmark is supplementary by design. Its purpose is to show how much precision the crossover design gained by conditioning on stable participant-level differences rather than trying to estimate the effect entirely across people.
+
+The contrast is stark in this dataset: the crossover standard error is `r sprintf("%.2f", se_pair)` seconds, whereas the first-period benchmark standard error is `r sprintf("%.2f", se_parallel)` seconds, a ratio of about `r sprintf("%.2f", precision_ratio)` to 1. The benchmark estimate therefore illustrates the design argument as much as the substantive treatment argument.
+
+This section reports the benchmark family `B1-B2` and the accompanying precision calculations. `B1` is the raw Session 1 contrast, `t.test(outcome_tte ~ high_tempo_first)`, and `B2` adds baseline adjustment through `lm(outcome_tte ~ high_tempo_first + participant_age + participant_gender)`. Their purpose is not to compete with the crossover result, but to show what the study would have looked like under a weaker between-person design. The precision tables then translate that comparison into standard-error and sample-size language.
+
+Here the tables and figures serve two linked purposes. The benchmark sample and balance tables show what the Session 1-only comparison looks like as a conventional between-person design. The descriptives, benchmark figure, and two benchmark regression tables then show the weakness of that design in substantive terms. The precision tables and bar chart convert the same point into design language by comparing standard errors, confidence-interval width, minimum detectable effects, and the hypothetical parallel-arm sample size needed to match the crossover design.
+
+```{r section-04, results='asis'}
+include_section("04_first_period_benchmark.Rmd")
+```
+
+```{r stargazer-benchmark, results='asis'}
+render_stargazer_table(
+  "stargazer_benchmark_family",
+  caption = "The benchmark `stargazer` table below summarizes `B1` and `B2`, the two Session 1-only models. These are useful as a design contrast because they show how weak the treatment evidence becomes once the analysis stops comparing participants to themselves."
+)
+```
+
+```{r section-05, results='asis'}
+include_section("05_precision_power_comparison.Rmd")
+```
+
+The key takeaway is not merely that the benchmark p-value is larger; it is that the entire benchmark design is far less informative. The benchmark treatment estimate is noisy and non-significant, while the precision tables show that a parallel-arm design would have needed far more independent participants to reach the same level of precision achieved by the crossover analysis.
+
+# VII. Exploratory Mechanisms and Heterogeneity
+
+The secondary analyses ask why the treatment may have worked and whether it appears to work differently across subgroups. The mechanism checks focus on RPE, motivation, and energy; the heterogeneity checks examine age, gender, baseline activity level, and plank familiarity. Because subgroup exploration creates a multiple-comparisons problem, the report applies a Bonferroni correction and treats the HTE results as exploratory.
+
+In directional terms, motivation shows the clearest secondary signal (`r sprintf("%.3f", sec_diff("Motivation"))`, p = `r sprintf("%.4f", sec_p("Motivation"))`), while the adjusted subgroup p-values remain uniformly unconvincing (`r paste(sprintf('%.3f', hte_ps_adj), collapse = ', ')`).
+
+This section reports two exploratory families. `S1-S6` covers the secondary outcomes: first as paired contrasts and then as fixed-effects regressions. The paired calculations are `t.test(rpe_high_tempo, rpe_low_tempo, paired = TRUE)`, `t.test(motivation_high_tempo, motivation_low_tempo, paired = TRUE)`, and `t.test(energy_high_tempo, energy_low_tempo, paired = TRUE)`, while the regression versions are `lm(post_rpe ~ high_tempo + period_factor + participant_id)`, `lm(pre_motivation ~ high_tempo + period_factor + participant_id)`, and `lm(pre_energy ~ high_tempo + period_factor + participant_id)`. `H1-H4` covers the four pre-specified interaction models for age, gender, activity level, and plank familiarity, each estimated in the form `lm(outcome_tte ~ high_tempo + subgroup + high_tempo:subgroup + period_factor + participant_id)`. The coefficient of interest changes across these families: in the secondary fixed-effects models it is still the main `high_tempo` coefficient, while in the HTE models it is the interaction term that asks whether the treatment effect varies across subgroups.
+
+The paired secondary-outcome table is meant to show simple within-person contrasts for the three mechanism variables, while the fixed-effects secondary table asks whether the same directional signals survive the regression framework used in the primary outcome. The HTE table then switches the question entirely: rather than asking whether the treatment worked on average, it asks whether the treatment effect appears to differ across pre-specified subgroups once multiplicity is taken seriously.
+
+```{r section-06, results='asis'}
+include_section("06_secondary_outcomes_and_hte.Rmd")
+```
+
+```{r stargazer-secondary, results='asis'}
+render_stargazer_table(
+  "stargazer_secondary_fe_family",
+  caption = "This `stargazer` block summarizes the fixed-effects secondary-outcome models, `S4-S6`. It complements the paired secondary tables by showing whether the same directional patterns remain when the outcomes are re-estimated in the crossover regression framework."
+)
+```
+
+```{r stargazer-hte, results='asis'}
+render_stargazer_table(
+  "stargazer_hte_family",
+  caption = "The final exploratory `stargazer` block summarizes the heterogeneity family, `H1-H4`. Here the interaction term is the key quantity because it tests whether the treatment effect varies across the pre-specified subgroup dimension in each column."
+)
+```
+
+These outputs suggest that the treatment may have worked partly through engagement or readiness to perform, because motivation moves in the expected direction more clearly than the other secondary outcomes. At the same time, the heterogeneity table does not support strong claims that the treatment was materially larger or smaller for any of the tested subgroups after Bonferroni correction.
+
+# VIII. Design-Based Inference Check
+
+The final inferential step asks whether the observed paired treatment effect looks unusual under the sharp null implied by the randomization mechanism itself. The bridge linear model writes the observed paired difference in regression form, while the randomization-inference procedure uses 10,000 random sign flips of the participant-level treatment differences to generate a distribution-free p-value.
+
+This section reports the design-based inference family `R1-R2`. `R1` is a bridge linear model, `lm(diff_high_minus_low ~ 1)`, whose intercept is the same paired estimand reported earlier; it exists to connect the paired-difference statistic to a familiar regression form. `R2` is the actual randomization-inference procedure using sign flips under the sharp null, operationalized as the repeated calculation of `mean(diff_high_minus_low * random_sign)` across 10,000 draws. The main inferential quantity in this family is the RI p-value rather than the bridge-model coefficient.
+
+The three outputs in this section are deliberately compact. The observed-statistic table restates the paired mean difference being tested. The bridge linear-model table shows that the same estimand can be written as a conventional intercept-only regression on the participant-level differences. The randomization-inference summary table and histogram then answer the design-based question directly: how often would a mean difference this large arise under the sharp null if each participant's signed treatment difference were equally likely to flip in the other direction?
+
+```{r section-07, results='asis'}
+include_section("07_randomization_inference.Rmd")
+```
+
+```{r stargazer-ri, results='asis'}
+render_stargazer_table(
+  "stargazer_ri_bridge_family",
+  caption = "The `stargazer` output for `R1` is included here as a compact regression restatement of the paired estimand. It is not the design-based test itself, but it makes the bridge from the paired-difference statistic to an intercept-only linear model explicit."
+)
+```
+
+The practical conclusion is that the observed paired effect is rare under that randomization-based null. The RI p-value of `r sprintf("%.4f", ri_two_sided)` closely reinforces the paired and fixed-effects results rather than contradicting them, which is exactly why this final check is valuable.
+
+# IX. Discussion and Conclusion
+
+Across the primary specifications, the treatment effect is consistent in sign and similar in magnitude. The paired estimate, the participant fixed-effects model without period adjustment, the period-adjusted fixed-effects model, and the design-based randomization-inference check all point to the same practical conclusion: in this experiment, the high-tempo condition increased plank endurance by roughly fourteen seconds relative to the low-tempo condition.
+
+The benchmark and precision sections clarify why the design mattered so much. A first-period-only parallel-arm analysis produced a much less precise estimate, a wider confidence interval, and a non-significant result. That contrast is not a contradiction. It is evidence that the randomized crossover design was the correct tool for this question because it absorbed the large baseline variance in plank performance that would otherwise overwhelm the treatment signal.
+
+At the same time, the study has important limits. The protocol was remote and partially self-administered, so timing quality and adherence could not be supervised in person. The treatment was also narrow: one high-tempo instrumental EDM track and one low-tempo instrumental EDM track delivered under standardized instructions. For that reason, the experiment identifies the causal effect of this bundled treatment package more cleanly than it identifies the pure effect of tempo abstracted away from song identity, production style, or genre. A different pair of tracks, or a different genre entirely such as classical or heavy metal, might produce different results.
+
+Generalizability should therefore be stated carefully. The findings speak most directly to short-duration isometric endurance in a remote plank task, not automatically to longer cardiovascular exercise such as running or cycling. What the experiment does show is that, in this setting, a carefully standardized high-tempo music condition improved performance relative to a carefully standardized low-tempo condition, and that the crossover design was essential for estimating that effect precisely.
+
+# References
+
+Ballmann, C. G. (2021). The influence of music preference on exercise responses and performance: A review. *Journal of Functional Morphology and Kinesiology, 6*(2), 33. https://doi.org/10.3390/jfmk6020033
+
+Centala, J., Pogorel, C., Pummill, S. W., & Malek, M. H. (2020). Listening to fast-tempo music delays the onset of neuromuscular fatigue. *Journal of Strength and Conditioning Research, 34*(3), 617-622. https://doi.org/10.1519/JSC.0000000000003417
+
+Coppock, A. (n.d.). *10 things to know about statistical power*. EGAP. https://egap.org/resource/10-things-to-know-about-statistical-power/
+
+Feiss, R., Kostrna, J., Scruggs, J. W., Pangelinan, M., & Tenenbaum, G. (2021). Effects of music tempo on perceived exertion, attention, affect, heart rate, and performance during isometric strength exercise. *Journal of Sports Sciences, 39*(2), 161-169. https://doi.org/10.1080/02640414.2020.1809974
+
+Gerber, A. S., & Green, D. P. (2012). *Field experiments: Design, analysis, and interpretation*. W. W. Norton & Company.
+
+Li, C., Jin, C., Zhang, Z., & Shi, P. (2022). Music recharges people: Synchronized music during aerobic exercise leads to better self-regulation performance. *PLOS ONE, 17*(12), e0278062. https://doi.org/10.1371/journal.pone.0278062
+
+Poon, E. T.-C., Kwan, W. L., Chow, C. C., & Chan, D. K. C. (2024). Music timing differentiates fatigue perception and performance during isometric strength exercises: A crossover randomised trial. *Journal of Sports Science and Medicine, 23*, 258-264. https://doi.org/10.52082/jssm.2024.258
+
+Terry, P. C., Karageorghis, C. I., Curran, M. L., Martin, O. V., & Parsons-Smith, R. L. (2020). Effects of music in exercise and sport: A meta-analytic review. *Psychological Bulletin, 146*(2), 91-117. https://doi.org/10.1037/bul0000216
+
+W241 Plank Study. (2026). *DATASCI241_Music_Tempo_Effects_on_Exercise_Performance* [Computer software]. GitHub. https://github.com/karan-mids24/DATASCI241_Music_Tempo_Effects_on_Exercise_Performance.git
+
+Angrist, J. D., & Pischke, J.-S. (2015). *Mastering 'metrics: The path from cause to effect*. Princeton University Press.

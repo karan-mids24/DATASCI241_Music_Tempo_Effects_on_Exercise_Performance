@@ -41,29 +41,37 @@ confidence interval from 4.86 to 23.88. The paired t-test yielded p =
 0.0041, which supports a statistically meaningful difference between the
 two conditions.
 
-The fixed-effects crossover regression tells the same story in a more
-formal way. This model uses the repeated-measures structure of the
-experiment, so each participant contributes one observation from Session
-1 and one observation from Session 2. The participant fixed effects
-absorb all stable person-level differences, such as baseline strength,
-fitness, or natural endurance, so the treatment effect is identified
-from within-person changes across the two sessions. The model also
-includes a Period 2 indicator, which equals 1 for a participant’s second
-session and 0 for the first. Its purpose is to test whether, regardless
-of music condition, outcomes tended to differ systematically in the
-second session. That matters because participants could perform better
-the second time due to practice or familiarity, or worse due to fatigue,
-boredom, or incomplete recovery. In this model, the estimated treatment
-effect of high tempo was 14.37 seconds with clustered p = 0.0391,
-indicating that the positive treatment effect remains statistically
-meaningful even after accounting for period and participant fixed
-effects. The Period 2 coefficient was 3.84 seconds with p = 0.5703,
-which suggests that second-session outcomes were slightly higher on
-average, but not by enough to conclude that there was a meaningful
-general session-order effect in this sample. Taken together, the paired
-contrast and the fixed-effects model point to the same substantive
-conclusion: high-tempo music increased plank endurance by roughly
-fourteen seconds on average.
+The same treatment signal appears when the analysis is rewritten as a
+participant fixed-effects linear model. In the simpler repeated-measures
+specification without a period control, the estimated high-tempo effect
+was 14.37 seconds with clustered p = 0.0381. That version is useful as a
+baseline because it keeps the linear-model framework while still relying
+entirely on within-person contrasts.
+
+The fixed-effects crossover regression with a Period 2 control tells the
+same story in a more formal way. This model uses the repeated-measures
+structure of the experiment, so each participant contributes one
+observation from Session 1 and one observation from Session 2. The
+participant fixed effects absorb all stable person-level differences,
+such as baseline strength, fitness, or natural endurance, so the
+treatment effect is identified from within-person changes across the two
+sessions. The model also includes a Period 2 indicator, which equals 1
+for a participant’s second session and 0 for the first. Its purpose is
+to test whether, regardless of music condition, outcomes tended to
+differ systematically in the second session. That matters because
+participants could perform better the second time due to practice or
+familiarity, or worse due to fatigue, boredom, or incomplete recovery.
+In this model, the estimated treatment effect of high tempo was 14.37
+seconds with clustered p = 0.0391, indicating that the positive
+treatment effect remains statistically meaningful even after accounting
+for period and participant fixed effects. The Period 2 coefficient was
+3.84 seconds with p = 0.5703, which suggests that second-session
+outcomes were slightly higher on average, but not by enough to conclude
+that there was a meaningful general session-order effect in this sample.
+Taken together, the paired contrast, the simpler fixed-effects model,
+and the period-adjusted fixed-effects model point to the same
+substantive conclusion: high-tempo music increased plank endurance by
+roughly fourteen seconds on average.
 
 This conclusion is reinforced by the design-based randomization
 inference analysis. Under the sharp null, random sign-flips of the

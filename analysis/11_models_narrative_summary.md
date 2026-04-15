@@ -38,6 +38,15 @@ paired = TRUE)</td>
 </tr>
 <tr class="even">
 <td style="text-align: left;">Primary crossover</td>
+<td style="text-align: left;">Fixed-effects model without period</td>
+<td style="text-align: left;">76 repeated-measures rows from 38
+participants</td>
+<td style="text-align: left;">lm(outcome_tte ~ high_tempo +
+participant_id)</td>
+<td style="text-align: left;">02_primary_crossover_analysis.Rmd</td>
+</tr>
+<tr class="odd">
+<td style="text-align: left;">Primary crossover</td>
 <td style="text-align: left;">Fixed-effects crossover regression</td>
 <td style="text-align: left;">76 repeated-measures rows from 38
 participants</td>
@@ -45,7 +54,7 @@ participants</td>
 period_factor + participant_id)</td>
 <td style="text-align: left;">02_primary_crossover_analysis.Rmd</td>
 </tr>
-<tr class="odd">
+<tr class="even">
 <td style="text-align: left;">Period/order diagnostics</td>
 <td style="text-align: left;">Broad period check</td>
 <td style="text-align: left;">76 repeated-measures rows from 38
@@ -53,7 +62,7 @@ participants</td>
 <td style="text-align: left;">t.test(Session2, Session1)</td>
 <td style="text-align: left;">03_period_order_diagnostics.Rmd</td>
 </tr>
-<tr class="even">
+<tr class="odd">
 <td style="text-align: left;">Period/order diagnostics</td>
 <td style="text-align: left;">Sequence diagnostic regression</td>
 <td style="text-align: left;">76 repeated-measures rows from 38
@@ -62,7 +71,7 @@ participants</td>
 crossover_order)</td>
 <td style="text-align: left;">03_period_order_diagnostics.Rmd</td>
 </tr>
-<tr class="odd">
+<tr class="even">
 <td style="text-align: left;">First-period benchmark</td>
 <td style="text-align: left;">Raw benchmark contrast</td>
 <td style="text-align: left;">46 Session 1 observations</td>
@@ -70,7 +79,7 @@ crossover_order)</td>
 high_tempo_first)</td>
 <td style="text-align: left;">04_first_period_benchmark.Rmd</td>
 </tr>
-<tr class="even">
+<tr class="odd">
 <td style="text-align: left;">First-period benchmark</td>
 <td style="text-align: left;">Precision-adjusted benchmark
 regression</td>
@@ -79,7 +88,7 @@ regression</td>
 participant_age + participant_gender)</td>
 <td style="text-align: left;">04_first_period_benchmark.Rmd</td>
 </tr>
-<tr class="odd">
+<tr class="even">
 <td style="text-align: left;">Precision comparison</td>
 <td style="text-align: left;">Precision formulas</td>
 <td style="text-align: left;">38 pairs versus 46 benchmark
@@ -88,7 +97,7 @@ observations</td>
 formulas</td>
 <td style="text-align: left;">05_precision_power_comparison.Rmd</td>
 </tr>
-<tr class="even">
+<tr class="odd">
 <td style="text-align: left;">Secondary outcomes</td>
 <td style="text-align: left;">Secondary paired contrasts</td>
 <td style="text-align: left;">38 completed pairs</td>
@@ -96,7 +105,7 @@ formulas</td>
 Energy</td>
 <td style="text-align: left;">06_secondary_outcomes_and_hte.Rmd</td>
 </tr>
-<tr class="odd">
+<tr class="even">
 <td style="text-align: left;">Secondary outcomes</td>
 <td style="text-align: left;">Secondary fixed-effects models</td>
 <td style="text-align: left;">76 repeated-measures rows from 38
@@ -105,7 +114,7 @@ participants</td>
 participant_id)</td>
 <td style="text-align: left;">06_secondary_outcomes_and_hte.Rmd</td>
 </tr>
-<tr class="even">
+<tr class="odd">
 <td style="text-align: left;">HTE</td>
 <td style="text-align: left;">Treatment-by-subgroup interaction
 models</td>
@@ -114,6 +123,14 @@ participants</td>
 <td style="text-align: left;">lm(outcome_tte ~ high_tempo + subgroup +
 high_tempo:subgroup + period_factor + participant_id)</td>
 <td style="text-align: left;">06_secondary_outcomes_and_hte.Rmd</td>
+</tr>
+<tr class="even">
+<td style="text-align: left;">Randomization inference</td>
+<td style="text-align: left;">Bridge linear model</td>
+<td style="text-align: left;">38 participant-level treatment
+differences</td>
+<td style="text-align: left;">lm(diff_high_minus_low ~ 1)</td>
+<td style="text-align: left;">07_randomization_inference.Rmd</td>
 </tr>
 <tr class="odd">
 <td style="text-align: left;">Randomization inference</td>
@@ -140,7 +157,16 @@ difference is different from zero. It is the cleanest design-consistent
 summary because the treatment effect is measured inside each participant
 rather than across different people.
 
-The more formal version is the fixed-effects crossover regression,
+The next step is an intermediate participant fixed-effects model without
+a period adjustment, written as
+`lm(outcome_tte ~ high_tempo + participant_id)` and estimated with
+participant-clustered standard errors. This keeps the linear-model
+framework while relying on the same within-person variation as the
+paired contrast. In the current analysis, the high-tempo coefficient in
+that baseline fixed-effects model is 14.37 seconds with clustered p =
+0.0381.
+
+The most formal version is the fixed-effects crossover regression,
 written as
 `lm(outcome_tte ~ high_tempo + period_factor + participant_id)` and
 estimated with participant-clustered standard errors. In words, this
@@ -246,15 +272,23 @@ interaction p-value is for Age, with interaction estimate 0.272, raw p =
 
 ## Randomization Inference
 
-The final inferential check is not a regression at all. It is a
-design-based randomization-inference exercise using random sign flips of
-the participant-level treatment differences. Under the sharp null of no
-treatment effect, each observed within-person difference could just as
-easily have had the opposite sign. The code repeatedly flips those signs
-at random and recalculates the mean difference 10,000 times, generating
-the null distribution implied by the crossover design itself. The
-resulting two-sided randomization-inference p-value is 0.0031, which
-closely tracks the paired and fixed-effects results.
+The randomization-inference section now begins with a bridge linear
+model, `lm(diff_high_minus_low ~ 1)`, whose intercept is exactly the
+same paired mean difference used elsewhere in the crossover analysis. In
+the current output, that intercept is 14.37 seconds with a conventional
+two-sided p-value of 0.0041. This bridge model is not meant to replace
+RI; it simply writes the same observed paired estimand in regression
+form.
+
+The final inferential check is the design-based randomization-inference
+exercise using random sign flips of the participant-level treatment
+differences. Under the sharp null of no treatment effect, each observed
+within-person difference could just as easily have had the opposite
+sign. The code repeatedly flips those signs at random and recalculates
+the mean difference 10,000 times, generating the null distribution
+implied by the crossover design itself. The resulting two-sided
+randomization-inference p-value is 0.0031, which closely tracks the
+paired and fixed-effects results.
 
 ## Reading The Pipeline Efficiently
 

@@ -4,10 +4,11 @@ subtitle: "Paired descriptives, main figures, paired contrast, and fixed-effects
 author: "W241 Plank Study"
 date: "`r Sys.Date()`"
 output:
-  html_document:
+  pdf_document:
     toc: true
     toc_depth: 2
     number_sections: true
+    latex_engine: pdflatex
 ---
 
 ```{r setup, include=FALSE}
@@ -46,7 +47,8 @@ The result sequence follows the report plan:
 
 1. paired descriptives
 2. paired mean-difference estimate
-3. participant fixed-effects model with a period indicator
+3. participant fixed-effects model without a period indicator
+4. participant fixed-effects model with a period indicator
 
 ## Load analytic datasets
 
@@ -245,10 +247,46 @@ paired_results[, value := round(value, 4)]
 kable(paired_results, caption = "Model 1. Raw paired contrast")
 ```
 
-## Model 2: fixed-effects crossover regression
+## Model 2: fixed-effects crossover regression without period adjustment
+
+```{r fe-model-no-period}
+long_primary[, participant_id := factor(participant_id)]
+
+fe_noperiod_fit <- lm(
+  outcome_tte ~ high_tempo + participant_id,
+  data = long_primary
+)
+
+fe_noperiod_vcov <- sandwich::vcovCL(fe_noperiod_fit, cluster = ~ participant_id, type = "HC1")
+fe_noperiod_ct <- lmtest::coeftest(fe_noperiod_fit, vcov. = fe_noperiod_vcov)
+
+beta_high_noperiod <- unname(fe_noperiod_ct["high_tempo", "Estimate"])
+se_high_noperiod <- unname(fe_noperiod_ct["high_tempo", "Std. Error"])
+ci_high_noperiod <- beta_high_noperiod + c(-1, 1) * 1.96 * se_high_noperiod
+
+fe_noperiod_results <- data.table(
+  term = "High-tempo indicator",
+  estimate = beta_high_noperiod,
+  std_error = se_high_noperiod,
+  conf_low = ci_high_noperiod[1],
+  conf_high = ci_high_noperiod[2],
+  p_value = unname(fe_noperiod_ct["high_tempo", "Pr(>|t|)"])
+)
+
+fe_noperiod_results[, `:=`(
+  estimate = round(estimate, 4),
+  std_error = round(std_error, 4),
+  conf_low = round(conf_low, 4),
+  conf_high = round(conf_high, 4),
+  p_value = round(p_value, 4)
+)]
+
+kable(fe_noperiod_results, caption = "Model 2. Fixed-effects crossover regression without period adjustment")
+```
+
+## Model 3: fixed-effects crossover regression with period adjustment
 
 ```{r fe-model}
-long_primary[, participant_id := factor(participant_id)]
 long_primary[, period_factor := factor(period)]
 
 fe_fit <- lm(
@@ -287,7 +325,7 @@ fe_results[, `:=`(
   p_value = round(p_value, 4)
 )]
 
-kable(fe_results, caption = "Model 2. Fixed-effects crossover regression with clustered SEs")
+kable(fe_results, caption = "Model 3. Fixed-effects crossover regression with clustered SEs")
 ```
 
 ## Main-effect comparison figure
@@ -295,13 +333,19 @@ kable(fe_results, caption = "Model 2. Fixed-effects crossover regression with cl
 ```{r fig-main-effects, fig.height=3.8}
 coef_plot <- rbind(
   data.table(
-    model = "Paired contrast",
+    model = "Model 1: Paired contrast",
     estimate = effect_mean,
     conf_low = effect_ci[1],
     conf_high = effect_ci[2]
   ),
   data.table(
-    model = "FE model",
+    model = "Model 2: FE, no period",
+    estimate = beta_high_noperiod,
+    conf_low = ci_high_noperiod[1],
+    conf_high = ci_high_noperiod[2]
+  ),
+  data.table(
+    model = "Model 3: FE, period-adjusted",
     estimate = beta_high,
     conf_low = ci_high[1],
     conf_high = ci_high[2]
@@ -314,7 +358,7 @@ ggplot(coef_plot, aes(x = model, y = estimate, ymin = conf_low, ymax = conf_high
   geom_pointrange(color = "#3182bd", linewidth = 0.55, size = 0.75) +
   labs(
     title = "Primary effect estimates",
-    subtitle = "Effect on plank time in seconds (high tempo - low tempo)",
+    subtitle = "Effect on plank time in seconds (high tempo - low tempo) across the three-model ladder",
     x = NULL,
     y = "Estimated effect (seconds)"
   ) +
@@ -332,6 +376,7 @@ stopifnot(all(long_primary$in_primary_analysis == 1L))
 message("Primary analytic participants: ", nrow(paired))
 message("Repeated-measures rows: ", nrow(long_primary))
 message("Paired mean difference (high - low): ", round(effect_mean, 3))
+message("FE without-period high-tempo coefficient: ", round(beta_high_noperiod, 3))
 message("FE high-tempo coefficient: ", round(beta_high, 3))
 ```
 

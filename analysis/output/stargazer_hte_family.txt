@@ -1,0 +1,27 @@
+
+Model Family H: Heterogeneous Treatment Effect Models
+==========================================================================================================================================
+                                                               Plank time to exhaustion (seconds)                                         
+                                  H1: Age                     H2: Gender                  H3: Activity               H4: Familiarity      
+------------------------------------------------------------------------------------------------------------------------------------------
+High-tempo main effect           14.369**                       10.425                       16.712                      10.197           
+                                  (6.757)                       (8.769)                     (13.984)                    (17.301)          
+                                                                                                                                          
+Moderator main effect             -0.433*                      25.506***                     -4.451                     -11.225**         
+                                  (0.254)                       (6.761)                      (2.659)                     (4.874)          
+                                                                                                                                          
+Period 2 indicator                 2.475                         4.282                        4.006                       4.527           
+                                  (6.611)                       (7.355)                      (6.514)                     (6.895)          
+                                                                                                                                          
+High tempo x moderator             0.272                         5.552                       -0.881                       2.883           
+                                  (0.509)                      (13.521)                      (5.318)                     (9.749)          
+                                                                                                                                          
+------------------------------------------------------------------------------------------------------------------------------------------
+Observations                        76                            76                           76                          76             
+R2                                 0.923                         0.922                        0.922                       0.922           
+Adjusted R2                        0.834                         0.833                        0.832                       0.833           
+==========================================================================================================================================
+Note:                  *p<0.1; **p<0.05; ***p<0.01                                                                                        
+                       The coefficient of interest changes across columns: the treatment-by-subgroup interaction is the HTE test.         
+                       All models use participant fixed effects and a Period 2 control.                                                   
+                       Standard errors are clustered at the participant level; multiplicity adjustment is discussed in the main report.   

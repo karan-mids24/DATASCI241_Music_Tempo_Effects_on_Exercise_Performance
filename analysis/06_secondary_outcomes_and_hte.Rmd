@@ -4,10 +4,11 @@ subtitle: "Exploratory secondary outcomes and heterogeneous treatment effects"
 author: "W241 Plank Study"
 date: "`r Sys.Date()`"
 output:
-  html_document:
+  pdf_document:
     toc: true
     toc_depth: 2
     number_sections: true
+    latex_engine: pdflatex
 ---
 
 ```{r setup, include=FALSE}
