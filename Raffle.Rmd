@@ -1,0 +1,68 @@
+---
+title: "Raffle"
+author: "Karan K Patel"
+date: "2026-04-18"
+output:
+  pdf_document: default
+  html_document: default
+---
+
+```{r setup, include=FALSE}
+library(data.table)
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r read_participant_data}
+participants <- fread("~/DATASCI241_Group_Project/DATASCI241_Music_Tempo_Effects_on_Exercise_Performance/W241 Plank Study Data - participants.csv", select = c("name", "email", "sessions_completed"))
+
+## Filter only those that completed both the sessions and exclude project group members.
+participants <- participants[(!(email %in% c("cschrupp@gmail.com", "ryan.castillo256@gmail.com", "karankpatel8585@gmail.com", "thomasjdobbs@gmail.com")) & (sessions_completed==2)), .(name, email)] 
+
+participants
+```
+
+## Raffle Code
+
+```{r 100_dollar_gift_card_winner}
+winner_1 <- participants[sample(.N, 1)]
+winner_1_email <- winner_1[ , email]
+winner_1
+```
+The winner of $100 gift card is `r winner_1_email`.
+
+```{r 50_dollar_gift_card_winner}
+winner_2 <- participants[!(email %in% c(winner_1_email)), ][sample(.N, 1)]
+winner_2_email <- winner_2[ , email]
+winner_2
+```
+
+The winner of $50 gift card is `r winner_2_email`.
+
+```{r 25_dollar_gift_card_winner_1}
+winner_3 <- participants[!(email %in% c(winner_1_email, winner_2_email)), ][sample(.N, 1)]
+winner_3_email <- winner_3[ , email]
+winner_3
+```
+
+```{r 25_dollar_gift_card_winner_2}
+winner_4 <- participants[!(email %in% c(winner_1_email, winner_2_email, winner_3_email)), ][sample(.N, 1)]
+winner_4_email <- winner_4[ , email]
+winner_4
+```
+
+
+```{r 25_dollar_gift_card_winner_3}
+winner_5 <- participants[!(email %in% c(winner_1_email, winner_2_email, winner_3_email, winner_4_email)), ][sample(.N, 1)]
+winner_5_email <- winner_5[ , email]
+winner_5
+```
+
+
+```{r 25_dollar_gift_card_winner_4}
+winner_6 <- participants[!(email %in% c(winner_1_email, winner_2_email, winner_3_email, winner_4_email, winner_5_email)), ][sample(.N, 1)]
+winner_6_email <- winner_6[ , email]
+winner_6
+```
+
+The winners of the remaining 4 $25 gift cards are: `r winner_3_email`, `r winner_4_email`, `r winner_5_email`, and `r winner_6_email`.
+
